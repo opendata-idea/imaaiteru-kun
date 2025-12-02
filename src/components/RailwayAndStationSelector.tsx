@@ -17,6 +17,11 @@ export default function RailwayAndStationSelector({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to midnight
+    return today.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -54,12 +59,25 @@ export default function RailwayAndStationSelector({
       (s) => s.value === selectedStation,
     )?.label;
     if (stationName) {
-      router.push(`/venues?stationName=${encodeURIComponent(stationName)}`);
+      router.push(
+        `/venues?stationName=${encodeURIComponent(
+          stationName,
+        )}&date=${selectedDate}`,
+      );
     }
   };
 
   return (
     <div className="p-4 space-y-4">
+      <div>
+        <h2 className="text-xl font-bold mb-2">日付選択</h2>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-md"
+        />
+      </div>
       <div>
         <h2 className="text-xl font-bold mb-2">路線選択</h2>
         <RailwaySelect
