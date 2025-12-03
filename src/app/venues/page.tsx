@@ -20,7 +20,7 @@ interface VenueData {
   search_station: string;
   coordinates: {
     lat: string;
-    lon:string;
+    lon: string;
   };
   venue_results: {
     ResultInfo: {
@@ -39,13 +39,6 @@ interface EventInfo {
 
 // --- ヘルパー関数 ---
 
-// 今日の日付をYYYY-MM-DD形式で取得
-const getTodayString = () => {
-  const today = new Date();
-  today.setHours(today.getHours() + 9); // JSTに調整
-  return today.toISOString().split("T")[0];
-};
-
 // 混雑度のスケールに応じて色を返す
 const getScaleColor = (scale: number) => {
   if (scale >= 8) return "bg-red-500";
@@ -54,140 +47,99 @@ const getScaleColor = (scale: number) => {
   return "bg-gray-500";
 };
 
-
 // --- コンポーネント ---
 
 export default function VenuesPage() {
   const searchParams = useSearchParams();
   const stationName = searchParams.get("stationName");
+  const date = searchParams.get("date");
 
-  // 周辺施設の状態
   const [venueData, setVenueData] = useState<VenueData | null>(null);
-  const [isVenueLoading, setIsVenueLoading] = useState(true);
-  const [venueError, setVenueError] = useState<string | null>(null);
-
-  // イベント情報の状態
-  const [targetDate, setTargetDate] = useState(getTodayString());
   const [eventData, setEventData] = useState<EventInfo[] | null>(null);
-  const [isEventLoading, setIsEventLoading] = useState(false);
-  const [eventError, setEventError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: stationNameが変更された時のみ実行
   useEffect(() => {
-    if (!stationName) {
-      setVenueError("駅名が指定されていません。");
-      setIsVenueLoading(false);
+    if (!stationName || !date) {
+      setError("駅名と日付が指定されていません。");
+      setIsLoading(false);
       return;
     }
 
-    const fetchVenueData = async () => {
-      setIsVenueLoading(true);
-      setVenueError(null);
+    const fetchAllData = async () => {
+      setIsLoading(true);
+      setError(null);
+      setVenueData(null);
+      setEventData(null);
+
       try {
-        const res = await fetch(
+        // 1. Fetch venues
+        const venueRes = await fetch(
           `/api/search-venues?stationName=${stationName}`,
         );
-        if (!res.ok) {
-          const errorData = await res.json();
+        if (!venueRes.ok) {
+          const errorData = await venueRes.json();
           throw new Error(
-            errorData.detail || `エラーが発生しました (HTTP ${res.status})`,
+            errorData.detail || `会場の検索に失敗しました (HTTP ${venueRes.status})`,
           );
         }
-        const result: VenueData = await res.json();
-        setVenueData(result);
+        const venues: VenueData = await venueRes.json();
+        setVenueData(venues);
+
+        // 2. Fetch events if venues are found
+        if (venues.venue_results.Feature.length > 0) {
+          const facilityList = venues.venue_results.Feature.map(
+            (venue) => venue.Name,
+          );
+
+          const eventRes = await fetch("/api/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              target_date: date,
+              facility_list: facilityList,
+            }),
+          });
+
+          if (!eventRes.ok) {
+            const errorData = await eventRes.json();
+            let errorMessage = errorData.detail || "イベント情報の取得に失敗しました。";
+            if (errorData.error) {
+              errorMessage += ` (詳細: ${errorData.error})`;
+            }
+            // Don't throw an error, just set it so venue results can still be displayed
+            setError(errorMessage);
+          } else {
+            const events: EventInfo[] = await eventRes.json();
+            setEventData(events);
+          }
+        }
       } catch (e: any) {
-        setVenueError(e.message || "データの取得に失敗しました。");
+        setError(e.message || "データの取得に失敗しました。");
       } finally {
-        setIsVenueLoading(false);
+        setIsLoading(false);
       }
     };
 
-    fetchVenueData();
-  }, [stationName]);
-
-  const handleSearchEvents = async () => {
-    if (!venueData || venueData.venue_results.Feature.length === 0) {
-      setEventError("イベントを検索する施設がありません。");
-      return;
-    }
-
-    setIsEventLoading(true);
-    setEventError(null);
-    setEventData(null);
-
-    const facilityList = venueData.venue_results.Feature.map(
-      (venue) => venue.Name,
-    );
-
-    try {
-      const res = await fetch("/api/events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          target_date: targetDate,
-          facility_list: facilityList,
-        }),
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        let errorMessage = errorData.detail || "イベント情報の取得に失敗しました。";
-        if (errorData.error) {
-          errorMessage += ` (詳細: ${errorData.error})`;
-        }
-        throw new Error(errorMessage);
-      }
-
-      const events: EventInfo[] = await res.json();
-      setEventData(events);
-    } catch (e: any) {
-      setEventError(e.message);
-    } finally {
-      setIsEventLoading(false);
-    }
-  };
-
+    fetchAllData();
+  }, [stationName, date]);
 
   const renderContent = () => {
-    if (isVenueLoading) {
-      return <p>周辺の施設を検索中...</p>;
+    if (isLoading) {
+      return <p>周辺の施設とイベント情報を検索中...</p>;
     }
 
-    if (venueError) {
-      return <p className="text-red-500">{venueError}</p>;
+    if (error && !venueData) {
+      return <p className="text-red-500">{error}</p>;
     }
-
+    
     if (!venueData || venueData.venue_results.ResultInfo.Count === 0) {
       return <p>周辺に該当する施設は見つかりませんでした。</p>;
     }
 
     return (
       <div>
-        <div className="my-4 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-100 dark:bg-slate-800 shadow-md">
-          <h2 className="text-lg font-semibold mb-3 text-slate-800 dark:text-slate-200">イベント混雑予測</h2>
-          <div className="flex flex-wrap items-center gap-4">
-            <input
-              type="date"
-              value={targetDate}
-              onChange={(e) => setTargetDate(e.target.value)}
-              className="p-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100"
-            />
-            <button
-              type="button"
-              onClick={handleSearchEvents}
-              disabled={isEventLoading}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-            >
-              {isEventLoading ? "検索中..." : "混雑状況を予測"}
-            </button>
-          </div>
-          {eventError && <p className="text-red-500 mt-3">{eventError}</p>}
-        </div>
-
-        <h2 className="text-xl font-semibold mb-2">
-          検索結果 ({venueData.venue_results.ResultInfo.Count}件) - {targetDate}
-        </h2>
+        {error && <p className="text-red-500 my-4">イベント情報の取得中にエラーが発生しました: {error}</p>}
         <ul className="space-y-3">
           {venueData.venue_results.Feature.map((venue) => {
             const event = eventData?.find(
@@ -200,13 +152,7 @@ export default function VenuesPage() {
                 <p className="text-xs mb-2">
                   カテゴリ: {venue.Property?.Genre?.[0]?.Name || "N/A"}
                 </p>
-                {isEventLoading && (
-                   <div className="mt-2 p-2 rounded-md bg-gray-100 animate-pulse">
-                    <div className="h-4 bg-gray-300 rounded w-3/4" />
-                    <div className="h-3 bg-gray-300 rounded w-1/2 mt-1" />
-                  </div>
-                )}
-                {event && (
+                {event ? (
                   <div className="mt-2 p-2 rounded-md bg-green-50 border border-green-200">
                     <p className="font-semibold text-green-800">
                       {event.event_name || "特に大きなイベントはなし"}
@@ -225,6 +171,11 @@ export default function VenuesPage() {
                       ({event.reason})
                     </p>
                   </div>
+                ) : (
+                  // Show a placeholder if event data is still loading or failed for this specific venue
+                  !error && <div className="mt-2 p-2 rounded-md bg-gray-100">
+                    <p className="text-sm text-gray-500">イベント情報取得中...</p>
+                  </div>
                 )}
               </li>
             );
@@ -237,7 +188,7 @@ export default function VenuesPage() {
   return (
     <main className="p-4">
       <h1 className="text-2xl font-bold mb-4">
-        「{stationName}」周辺の施設
+        「{stationName}」周辺のイベント情報 ({date})
       </h1>
       {renderContent()}
     </main>
