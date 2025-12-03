@@ -105,14 +105,46 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // 3. Reactに返す情報をまとめる
-  // Yahoo! APIのレスポンスからカテゴリ情報を抽出し、フロントエンドの型に合わせる
+  // 3. Yahoo! APIのレスポンスを加工する
+  const originalFeatures = venueData.Feature || [];
+
+  // 3-1. カテゴリで除外 (追加の必要あり)
+  const EXCLUDED_CATEGORIES = new Set([
+    "スポーツクラブ",
+    "スポーツショップ",
+    "ゴルフ場",
+    "ゴルフ練習場",
+    "趣味、習い事",
+    "ファッション、アクセサリー、時計",
+  ]);
+  const categoryFilteredFeatures = originalFeatures.filter((venue: any) => {
+    const categoryName = venue.Property?.Genre?.[0]?.Name;
+    return !categoryName || !EXCLUDED_CATEGORIES.has(categoryName);
+  });
+
+  // 3-2. 名称で重複を削除
+  const uniqueNames = new Set<string>();
+  const deduplicatedFeatures: any[] = [];
+  for (const venue of categoryFilteredFeatures) {
+    // 名前の主要部分（スペースや特定部署名より前）を抽出
+    const baseName = venue.Name.split(" ")[0].split("　")[0];
+    if (!uniqueNames.has(baseName)) {
+      uniqueNames.add(baseName);
+      deduplicatedFeatures.push({
+        ...venue,
+        Category: venue.Property?.Genre?.[0]?.Name || "", // カテゴリ情報を追加
+      });
+    }
+  }
+
+  // 4. Reactに返す情報をまとめる
   const processedVenueResults = {
     ...venueData,
-    Feature: venueData.Feature.map((venue: any) => ({
-      ...venue,
-      Category: venue.Property?.Genre?.[0]?.Name || "", // カテゴリ情報を追加
-    })),
+    ResultInfo: {
+      ...venueData.ResultInfo,
+      Count: deduplicatedFeatures.length, // 件数を更新
+    },
+    Feature: deduplicatedFeatures,
   };
 
   return NextResponse.json({
