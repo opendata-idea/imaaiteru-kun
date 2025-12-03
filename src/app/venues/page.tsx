@@ -16,6 +16,16 @@ interface Venue {
   };
 }
 
+interface EventInfo {
+  facility_name: string;
+  event_name: string | null;
+  scale: number;
+  reason: string;
+}
+
+// Combined type for sorting
+type SortedVenue = Venue & { event?: EventInfo };
+
 interface VenueData {
   search_station: string;
   coordinates: {
@@ -30,12 +40,6 @@ interface VenueData {
   };
 }
 
-interface EventInfo {
-  facility_name: string;
-  event_name: string | null;
-  scale: number;
-  reason: string;
-}
 
 // --- ヘルパー関数 ---
 
@@ -56,6 +60,7 @@ export default function VenuesPage() {
 
   const [venueData, setVenueData] = useState<VenueData | null>(null);
   const [eventData, setEventData] = useState<EventInfo[] | null>(null);
+  const [sortedVenues, setSortedVenues] = useState<SortedVenue[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +76,7 @@ export default function VenuesPage() {
       setError(null);
       setVenueData(null);
       setEventData(null);
+      setSortedVenues([]);
 
       try {
         // 1. Fetch venues
@@ -107,12 +113,15 @@ export default function VenuesPage() {
             if (errorData.error) {
               errorMessage += ` (詳細: ${errorData.error})`;
             }
-            // Don't throw an error, just set it so venue results can still be displayed
             setError(errorMessage);
+            // If events fail, still show venues (unsorted)
+            setSortedVenues(venues.venue_results.Feature);
           } else {
             const events: EventInfo[] = await eventRes.json();
             setEventData(events);
           }
+        } else {
+          setSortedVenues([]);
         }
       } catch (e: any) {
         setError(e.message || "データの取得に失敗しました。");
@@ -124,27 +133,44 @@ export default function VenuesPage() {
     fetchAllData();
   }, [stationName, date]);
 
+  // This effect handles the sorting logic whenever venue or event data changes.
+  useEffect(() => {
+    if (!venueData) return;
+
+    const combined = venueData.venue_results.Feature.map((venue): SortedVenue => {
+      const event = eventData?.find(e => e.facility_name === venue.Name);
+      return { ...venue, event };
+    });
+
+    combined.sort((a, b) => {
+      const scaleA = a.event?.scale ?? 0;
+      const scaleB = b.event?.scale ?? 0;
+      return scaleB - scaleA;
+    });
+
+    setSortedVenues(combined);
+
+  }, [venueData, eventData]);
+
   const renderContent = () => {
     if (isLoading) {
       return <p>周辺の施設とイベント情報を検索中...</p>;
     }
 
-    if (error && !venueData) {
+    if (error && sortedVenues.length === 0) {
       return <p className="text-red-500">{error}</p>;
     }
     
-    if (!venueData || venueData.venue_results.ResultInfo.Count === 0) {
+    if (sortedVenues.length === 0) {
       return <p>周辺に該当する施設は見つかりませんでした。</p>;
     }
 
     return (
       <div>
-        {error && <p className="text-red-500 my-4">イベント情報の取得中にエラーが発生しました: {error}</p>}
+        {error && !eventData && <p className="text-red-500 my-4">イベント情報の取得中にエラーが発生しました: {error}</p>}
         <ul className="space-y-3">
-          {venueData.venue_results.Feature.map((venue) => {
-            const event = eventData?.find(
-              (e) => e.facility_name === venue.Name,
-            );
+          {sortedVenues.map((venue) => {
+            const { event } = venue;
             return (
               <li key={venue.Id} className="p-3 border rounded-md">
                 <p className="font-bold">{venue.Name}</p>
@@ -172,9 +198,8 @@ export default function VenuesPage() {
                     </p>
                   </div>
                 ) : (
-                  // Show a placeholder if event data is still loading or failed for this specific venue
-                  !error && <div className="mt-2 p-2 rounded-md bg-gray-100">
-                    <p className="text-sm text-gray-500">イベント情報取得中...</p>
+                  <div className="mt-2 p-2 rounded-md bg-gray-100">
+                    <p className="text-sm text-gray-500">イベント情報なし</p>
                   </div>
                 )}
               </li>
@@ -188,7 +213,7 @@ export default function VenuesPage() {
   return (
     <main className="p-4">
       <h1 className="text-2xl font-bold mb-4">
-        「{stationName}」周辺のイベント情報 ({date})
+        「{stationName}」周辺の施設 ({date})
       </h1>
       {renderContent()}
     </main>
