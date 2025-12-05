@@ -1,5 +1,5 @@
+import { type NextRequest, NextResponse } from "next/server";
 import { fetchStationsByRailway } from "@/lib/odpt";
-import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);

@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
 import {
   GoogleGenerativeAI,
-  HarmCategory,
   HarmBlockThreshold,
+  HarmCategory,
 } from "@google/generative-ai";
+import { type NextRequest, NextResponse } from "next/server";
 
 const API_KEY = process.env.GEMINI_API_KEY;
 
@@ -13,11 +13,11 @@ const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 const model = genAI
   ? genAI.getGenerativeModel({
       model: "gemini-2.5-pro",
-      tools: [{ "google_search": {} }],
+      tools: [{ google_search: {} }],
     })
   : null;
 
-const generationConfig = {
+const _generationConfig = {
   temperature: 0.1,
   topP: 0.95,
   topK: 64,
@@ -25,7 +25,7 @@ const generationConfig = {
   responseMimeType: "application/json",
 };
 
-const safetySettings = [
+const _safetySettings = [
   {
     category: HarmCategory.HARM_CATEGORY_HARASSMENT,
     threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let target_date, facility_list;
+  let target_date: string, facility_list: string[];
   try {
     const body = await request.json();
     target_date = body.target_date;
@@ -96,16 +96,18 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-  } catch (error) {
-    return NextResponse.json({ detail: "Invalid JSON in request body." }, { status: 400 });
+  } catch (_error) {
+    return NextResponse.json(
+      { detail: "Invalid JSON in request body." },
+      { status: 400 },
+    );
   }
 
-
   try {
-    const prompt = SYSTEM_PROMPT.replace("{{target_date}}", target_date).replace(
-      "{{facility_list}}",
-      JSON.stringify(facility_list),
-    );
+    const prompt = SYSTEM_PROMPT.replace(
+      "{{target_date}}",
+      target_date,
+    ).replace("{{facility_list}}", JSON.stringify(facility_list));
 
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
@@ -126,8 +128,7 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       );
     }
-
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Gemini API Error:", error);
     const errorMessage = error.message || "An unknown error occurred";
     return NextResponse.json(

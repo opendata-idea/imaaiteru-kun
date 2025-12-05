@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import type { RailwayOption, StationOption } from "@/lib/odpt";
 import RailwaySelect from "./RailwaySelect";
-import { RailwayOption, StationOption } from "@/lib/odpt";
 
 type RailwayAndStationSelectorProps = {
   railwayOptions: RailwayOption[];
@@ -109,6 +109,7 @@ export default function RailwayAndStationSelector({
                 ))}
               </select>
               <button
+                type="button"
                 onClick={handleSearch}
                 disabled={!selectedStation}
                 className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300"

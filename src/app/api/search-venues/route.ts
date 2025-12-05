@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 
 // --- .envから設定を読み込む ---
 const CLIENT_ID = process.env.YAHOO_CLIENT_ID;
@@ -7,6 +7,21 @@ const CLIENT_ID = process.env.YAHOO_CLIENT_ID;
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const LOCAL_SEARCH_URL = "https://map.yahooapis.jp/search/local/V1/localSearch";
 const VENUE_GC_CODES = "0301002,0301003,0301013,0303001,0305004";
+
+interface YahooVenueFeature {
+  Id: string;
+  Name: string;
+  Property?: {
+    Address?: string;
+    Genre?: {
+      Name: string;
+    }[];
+  };
+}
+
+interface ProcessedVenueFeature extends YahooVenueFeature {
+  Category: string;
+}
 
 // --- 内部で使う関数 ---
 
@@ -69,10 +84,7 @@ async function searchEventVenues(clientId: string, lat: string, lon: string) {
 export async function GET(request: NextRequest) {
   if (!CLIENT_ID) {
     console.error("エラー: 環境変数に YAHOO_CLIENT_ID を設定してください。");
-    return NextResponse.json(
-      { detail: "サーバー設定エラー" },
-      { status: 500 },
-    );
+    return NextResponse.json({ detail: "サーバー設定エラー" }, { status: 500 });
   }
 
   const { searchParams } = new URL(request.url);
@@ -117,14 +129,16 @@ export async function GET(request: NextRequest) {
     "趣味、習い事",
     "ファッション、アクセサリー、時計",
   ]);
-  const categoryFilteredFeatures = originalFeatures.filter((venue: any) => {
-    const categoryName = venue.Property?.Genre?.[0]?.Name;
-    return !categoryName || !EXCLUDED_CATEGORIES.has(categoryName);
-  });
+  const categoryFilteredFeatures = originalFeatures.filter(
+    (venue: YahooVenueFeature) => {
+      const categoryName = venue.Property?.Genre?.[0]?.Name;
+      return !categoryName || !EXCLUDED_CATEGORIES.has(categoryName);
+    },
+  );
 
   // 3-2. 名称で重複を削除
   const uniqueNames = new Set<string>();
-  const deduplicatedFeatures: any[] = [];
+  const deduplicatedFeatures: ProcessedVenueFeature[] = [];
   for (const venue of categoryFilteredFeatures) {
     // 名前の主要部分（スペースや特定部署名より前）を抽出
     const baseName = venue.Name.split(" ")[0].split("　")[0];

@@ -40,7 +40,6 @@ interface VenueData {
   };
 }
 
-
 // --- ヘルパー関数 ---
 
 // 混雑度のスケールに応じて色を返す
@@ -63,6 +62,7 @@ export default function VenuesPage() {
   const [sortedVenues, setSortedVenues] = useState<SortedVenue[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasCongestedEvents, setHasCongestedEvents] = useState(false);
 
   useEffect(() => {
     if (!stationName || !date) {
@@ -86,7 +86,8 @@ export default function VenuesPage() {
         if (!venueRes.ok) {
           const errorData = await venueRes.json();
           throw new Error(
-            errorData.detail || `会場の検索に失敗しました (HTTP ${venueRes.status})`,
+            errorData.detail ||
+              `会場の検索に失敗しました (HTTP ${venueRes.status})`,
           );
         }
         const venues: VenueData = await venueRes.json();
@@ -109,7 +110,8 @@ export default function VenuesPage() {
 
           if (!eventRes.ok) {
             const errorData = await eventRes.json();
-            let errorMessage = errorData.detail || "イベント情報の取得に失敗しました。";
+            let errorMessage =
+              errorData.detail || "イベント情報の取得に失敗しました。";
             if (errorData.error) {
               errorMessage += ` (詳細: ${errorData.error})`;
             }
@@ -118,12 +120,14 @@ export default function VenuesPage() {
             setSortedVenues(venues.venue_results.Feature);
           } else {
             const events: EventInfo[] = await eventRes.json();
-            setEventData(events);
+            const filteredEvents = events.filter((event) => event.scale >= 5);
+            setEventData(filteredEvents);
+            setHasCongestedEvents(filteredEvents.length > 0);
           }
         } else {
           setSortedVenues([]);
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         setError(e.message || "データの取得に失敗しました。");
       } finally {
         setIsLoading(false);
@@ -137,10 +141,12 @@ export default function VenuesPage() {
   useEffect(() => {
     if (!venueData) return;
 
-    const combined = venueData.venue_results.Feature.map((venue): SortedVenue => {
-      const event = eventData?.find(e => e.facility_name === venue.Name);
-      return { ...venue, event };
-    });
+    const combined = venueData.venue_results.Feature.map(
+      (venue): SortedVenue => {
+        const event = eventData?.find((e) => e.facility_name === venue.Name);
+        return { ...venue, event };
+      },
+    );
 
     combined.sort((a, b) => {
       const scaleA = a.event?.scale ?? 0;
@@ -149,7 +155,6 @@ export default function VenuesPage() {
     });
 
     setSortedVenues(combined);
-
   }, [venueData, eventData]);
 
   const renderContent = () => {
@@ -160,35 +165,46 @@ export default function VenuesPage() {
     if (error && sortedVenues.length === 0) {
       return <p className="text-red-500">{error}</p>;
     }
-    
+
     if (sortedVenues.length === 0) {
       return <p>周辺に該当する施設は見つかりませんでした。</p>;
     }
 
+    // If venues were found, but no congested events (scale >= 5) were found among them
+    if (venueData && !hasCongestedEvents) {
+      return <p>混雑が予測されるイベントは見つかりませんでした。</p>;
+    }
+
     return (
       <div>
-        {error && !eventData && <p className="text-red-500 my-4">イベント情報の取得中にエラーが発生しました: {error}</p>}
+        {error && !eventData && (
+          <p className="text-red-500 my-4">
+            イベント情報の取得中にエラーが発生しました: {error}
+          </p>
+        )}
         <ul className="space-y-3">
           {sortedVenues.map((venue) => {
             const { event } = venue;
-            return (
-              <li key={venue.Id} className="p-3 border rounded-md">
-                <p className="font-bold">{venue.Name}</p>
-                <p className="text-sm">{venue.Property?.Address}</p>
-                <p className="text-xs mb-2">
-                  カテゴリ: {venue.Property?.Genre?.[0]?.Name || "N/A"}
-                </p>
-                {event ? (
+            // Only render venues that have a congested event associated with them
+            if (event) {
+              // 'event' here will only exist if scale >= 5 due to filtering
+              return (
+                <li key={venue.Id} className="p-3 border rounded-md">
+                  <p className="font-bold">{venue.Name}</p>
+                  <p className="text-sm">{venue.Property?.Address}</p>
+                  <p className="text-xs mb-2">
+                    カテゴリ: {venue.Property?.Genre?.[0]?.Name || "N/A"}
+                  </p>
                   <div className="mt-2 p-2 rounded-md bg-green-50 border border-green-200">
                     <p className="font-semibold text-green-800">
                       {event.event_name || "特に大きなイベントはなし"}
                     </p>
                     <div className="flex items-center gap-2">
-                       <span
+                      <span
                         className={`inline-block w-4 h-4 rounded-full ${getScaleColor(
                           event.scale,
                         )}`}
-                       />
+                      />
                       <p className="text-sm text-gray-600">
                         混雑予測: {event.scale}/10
                       </p>
@@ -197,13 +213,10 @@ export default function VenuesPage() {
                       ({event.reason})
                     </p>
                   </div>
-                ) : (
-                  <div className="mt-2 p-2 rounded-md bg-gray-100">
-                    <p className="text-sm text-gray-500">イベント情報なし</p>
-                  </div>
-                )}
-              </li>
-            );
+                </li>
+              );
+            }
+            return null; // Don't render venues without congested events
           })}
         </ul>
       </div>
