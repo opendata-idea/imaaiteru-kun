@@ -17,15 +17,38 @@ interface Venue {
   };
 }
 
+// 混雑予測の時間帯ごとの情報
+interface CongestionPrediction {
+  start_hour: number;
+  end_hour: number;
+  label: string;
+}
+
+// 個々のイベント情報を表す型
 interface EventInfo {
-  facility_name: string;
   event_name: string | null;
   scale: number;
   reason: string;
+  congestion_predictions: CongestionPrediction[];
 }
 
-// Combined type for sorting
-type SortedVenue = Venue & { event?: EventInfo };
+// APIから返される施設ごとのイベントリストの型
+interface FacilityWithEvents {
+  facility_name: string;
+  events: EventInfo[];
+}
+
+// 時間帯でグループ化された、表示用のイベント情報
+interface GroupedEvent {
+  start_hour: number;
+  end_hour: number;
+  label: string;
+  events: {
+    venue_name: string;
+    event_name: string | null;
+    scale: number;
+  }[];
+}
 
 interface VenueData {
   search_station: string;
@@ -45,10 +68,10 @@ interface VenueData {
 
 // 混雑度のスケールに応じて色を返す
 const getScaleColor = (scale: number) => {
-  if (scale >= 8) return "bg-red-500";
-  if (scale >= 5) return "bg-yellow-500";
-  if (scale >= 3) return "bg-blue-500";
-  return "bg-gray-500";
+  if (scale >= 8) return "bg-red-100 text-red-800 border-red-200";
+  if (scale >= 5) return "bg-yellow-100 text-yellow-800 border-yellow-200";
+  if (scale >= 3) return "bg-blue-100 text-blue-800 border-blue-200";
+  return "bg-gray-100 text-gray-800 border-gray-200";
 };
 
 // --- コンポーネント ---
@@ -59,8 +82,8 @@ export default function VenuesPage() {
   const date = searchParams.get("date");
 
   const [venueData, setVenueData] = useState<VenueData | null>(null);
-  const [eventData, setEventData] = useState<EventInfo[] | null>(null);
-  const [sortedVenues, setSortedVenues] = useState<SortedVenue[]>([]);
+  const [eventData, setEventData] = useState<FacilityWithEvents[] | null>(null);
+  const [groupedEvents, setGroupedEvents] = useState<GroupedEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasCongestedEvents, setHasCongestedEvents] = useState(false);
@@ -78,7 +101,7 @@ export default function VenuesPage() {
       setError(null);
       setVenueData(null);
       setEventData(null);
-      setSortedVenues([]);
+      setGroupedEvents([]);
       setStationImageUrl(null);
 
       // --- Wikipedia画像取得用の関数 ---
@@ -95,7 +118,7 @@ export default function VenuesPage() {
           list: "geosearch",
           gscoord: `${lat}|${lon}`,
           gsradius: "1000", // 1km圏内
-          gslimit: "20",
+          gslimit: "30",
           format: "json",
           origin: "*",
         });
@@ -193,6 +216,7 @@ export default function VenuesPage() {
               body: JSON.stringify({
                 target_date: date,
                 facility_list: facilityList,
+                station_name: stationName,
               }),
             });
 
@@ -204,15 +228,18 @@ export default function VenuesPage() {
                 errorMessage += ` (詳細: ${errorData.error})`;
               }
               setError(errorMessage);
-              setSortedVenues(venues.venue_results.Feature);
+              // setSortedVenues(venues.venue_results.Feature); // 不要なので削除
             } else {
-              const events: EventInfo[] = await eventRes.json();
-              const filteredEvents = events.filter((event) => event.scale >= 5);
-              setEventData(filteredEvents);
-              setHasCongestedEvents(filteredEvents.length > 0);
+              const eventsData: FacilityWithEvents[] = await eventRes.json();
+              setEventData(eventsData);
+              // 混雑するイベント（scale >= 5）が1つでも存在するかチェック
+              const hasAnyCongestedEvent = eventsData.some((facility) =>
+                facility.events.some((event) => event.scale >= 5),
+              );
+              setHasCongestedEvents(hasAnyCongestedEvent);
             }
           } else {
-            setSortedVenues([]);
+            setGroupedEvents([]); // イベントがない場合は空にする
           }
         } catch (e: unknown) {
           if (e instanceof Error) {
@@ -238,89 +265,104 @@ export default function VenuesPage() {
     fetchAllData();
   }, [stationName, date]);
 
-  // This effect handles the sorting logic whenever venue or event data changes.
+  // This effect handles the data transformation, sorting, and grouping logic.
   useEffect(() => {
-    if (!venueData) return;
+    if (!eventData) return;
 
-    const combined = venueData.venue_results.Feature.map(
-      (venue): SortedVenue => {
-        const event = eventData?.find((e) => e.facility_name === venue.Name);
-        return { ...venue, event };
-      },
+    const flatEvents = eventData.flatMap((facility) =>
+      facility.events.flatMap((event) =>
+        event.congestion_predictions.map((prediction) => ({
+          ...prediction,
+          venue_name: facility.facility_name,
+          event_name: event.event_name,
+          scale: event.scale,
+        })),
+      ),
     );
 
-    combined.sort((a, b) => {
-      const scaleA = a.event?.scale ?? 0;
-      const scaleB = b.event?.scale ?? 0;
-      return scaleB - scaleA;
-    });
+    // 混雑度が高い（scale >= 5）イベントのみフィルタリング
+    const filteredEvents = flatEvents.filter((event) => event.scale >= 5);
 
-    setSortedVenues(combined);
-  }, [venueData, eventData]);
+    // 時間順にソート
+    filteredEvents.sort((a, b) => a.start_hour - b.start_hour);
+
+    // 時間帯でグルーピング
+    const grouped = filteredEvents.reduce<GroupedEvent[]>((acc, event) => {
+      const lastGroup = acc[acc.length - 1];
+      if (
+        lastGroup &&
+        lastGroup.start_hour === event.start_hour &&
+        lastGroup.end_hour === event.end_hour &&
+        lastGroup.label === event.label
+      ) {
+        lastGroup.events.push({
+          venue_name: event.venue_name,
+          event_name: event.event_name,
+          scale: event.scale,
+        });
+      } else {
+        acc.push({
+          start_hour: event.start_hour,
+          end_hour: event.end_hour,
+          label: event.label,
+          events: [
+            {
+              venue_name: event.venue_name,
+              event_name: event.event_name,
+              scale: event.scale,
+            },
+          ],
+        });
+      }
+      return acc;
+    }, []);
+
+    setGroupedEvents(grouped);
+  }, [eventData]);
 
   const renderContent = () => {
     if (isLoading) {
       return <p>周辺の施設とイベント情報を検索中...</p>;
     }
 
-    if (error && sortedVenues.length === 0) {
+    if (error) {
       return <p className="text-red-500">{error}</p>;
     }
 
-    if (sortedVenues.length === 0) {
-      return <p>周辺に該当する施設は見つかりませんでした。</p>;
-    }
-
-    // If venues were found, but no congested events (scale >= 5) were found among them
-    if (venueData && !hasCongestedEvents) {
+    if (groupedEvents.length === 0) {
       return <p>混雑が予測されるイベントは見つかりませんでした。</p>;
     }
 
     return (
-      <div>
-        {error && !eventData && (
-          <p className="text-red-500 my-4">
-            イベント情報の取得中にエラーが発生しました: {error}
-          </p>
-        )}
-        <ul className="space-y-3">
-          {sortedVenues.map((venue) => {
-            const { event } = venue;
-            // Only render venues that have a congested event associated with them
-            if (event) {
-              // 'event' here will only exist if scale >= 5 due to filtering
-              return (
-                <li key={venue.Id} className="p-3 border rounded-md">
-                  <p className="font-bold">{venue.Name}</p>
-                  <p className="text-sm">{venue.Property?.Address}</p>
-                  <p className="text-xs mb-2">
-                    カテゴリ: {venue.Property?.Genre?.[0]?.Name || "N/A"}
-                  </p>
-                  <div className="mt-2 p-2 rounded-md bg-green-50 border border-green-200">
-                    <p className="font-semibold text-green-800">
-                      {event.event_name || "特に大きなイベントはなし"}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-block w-4 h-4 rounded-full ${getScaleColor(
-                          event.scale,
-                        )}`}
-                      />
-                      <p className="text-sm text-gray-600">
-                        混雑予測: {event.scale}/10
-                      </p>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      ({event.reason})
-                    </p>
-                  </div>
-                </li>
-              );
-            }
-            return null; // Don't render venues without congested events
-          })}
-        </ul>
-      </div>
+      <ul className="space-y-3">
+        {groupedEvents.map((group, index) => {
+          const maxScale = group.events.reduce(
+            (max, event) => Math.max(max, event.scale),
+            0,
+          );
+          return (
+            <li
+              key={index}
+              className={`p-4 rounded-lg border ${getScaleColor(maxScale)}`}
+            >
+              <div className="flex items-baseline">
+                <span className="font-bold text-xl">
+                  {String(group.start_hour).padStart(2, "0")}:00 -{" "}
+                  {String(group.end_hour).padStart(2, "0")}:00
+                </span>
+                <span className="text-sm ml-2">({group.label})</span>
+              </div>
+              <ul className="list-disc list-inside mt-2 pl-2 space-y-1">
+                {group.events.map((event, eventIndex) => (
+                  <li key={eventIndex} className="font-semibold">
+                    {event.venue_name} - {event.event_name}
+                  </li>
+                ))}
+              </ul>
+            </li>
+          );
+        })}
+      </ul>
     );
   };
 
@@ -332,18 +374,22 @@ export default function VenuesPage() {
 
       {/* Station Image */}
       <div className="relative mb-4 w-full aspect-[16/9] max-h-60 overflow-hidden rounded-md shadow-md">
-        {stationImageUrl ? (
-          <Image
-            src={stationImageUrl}
-            alt={`${stationName}駅の画像`}
-            fill
-            style={{ objectFit: "contain" }}
-            priority // 画像がLCPになる可能性が高いため、優先的に読み込む
-          />
-        ) : (
-          // Placeholder to prevent layout shift
-          <div className="w-full h-full bg-gray-200 animate-pulse" />
-        )}
+          {stationImageUrl ? (
+            <div className="max-w-xs mx-auto">
+              <Image
+                src={stationImageUrl}
+                alt={stationName}
+                width={320}
+                height={240}
+                className="w-full h-auto rounded-lg shadow-md"
+                style={{ objectFit: "contain" }}
+              />
+            </div>
+          ) : (
+            <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center text-gray-500">
+              画像なし
+            </div>
+          )}
       </div>
 
       {renderContent()}
