@@ -163,6 +163,12 @@ export async function POST(request: NextRequest) {
       }
 
       const events = JSON.parse(cleanedText);
+
+      // AIの出力がオブジェクトだった場合に配列に変換する
+      if (!Array.isArray(events)) {
+        return NextResponse.json([events]);
+      }
+
       return NextResponse.json(events);
     } catch (parseError) {
       console.error("JSON Parse Error:", parseError);

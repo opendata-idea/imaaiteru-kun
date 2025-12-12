@@ -48,6 +48,8 @@ interface GroupedEvent {
     event_name: string | null;
     scale: number;
   }[];
+  totalScale: number;
+  eventCount: number;
 }
 
 interface VenueData {
@@ -88,6 +90,8 @@ export default function VenuesPage() {
   const [error, setError] = useState<string | null>(null);
   const [hasCongestedEvents, setHasCongestedEvents] = useState(false);
   const [stationImageUrl, setStationImageUrl] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<GroupedEvent | null>(null);
 
   useEffect(() => {
     if (!stationName || !date) {
@@ -267,7 +271,7 @@ export default function VenuesPage() {
 
   // This effect handles the data transformation, sorting, and grouping logic.
   useEffect(() => {
-    if (!eventData) return;
+    if (!eventData || !Array.isArray(eventData)) return;
 
     const flatEvents = eventData.flatMap((facility) =>
       facility.events.flatMap((event) =>
@@ -286,7 +290,7 @@ export default function VenuesPage() {
     // 時間順にソート
     filteredEvents.sort((a, b) => a.start_hour - b.start_hour);
 
-    // 時間帯でグルーピング
+    // 時間帯でグルーピングし、混雑度を合算
     const grouped = filteredEvents.reduce<GroupedEvent[]>((acc, event) => {
       const lastGroup = acc[acc.length - 1];
       if (
@@ -300,6 +304,8 @@ export default function VenuesPage() {
           event_name: event.event_name,
           scale: event.scale,
         });
+        lastGroup.totalScale = Math.min(10, lastGroup.totalScale + event.scale);
+        lastGroup.eventCount += 1;
       } else {
         acc.push({
           start_hour: event.start_hour,
@@ -312,6 +318,8 @@ export default function VenuesPage() {
               scale: event.scale,
             },
           ],
+          totalScale: event.scale,
+          eventCount: 1,
         });
       }
       return acc;
@@ -333,47 +341,93 @@ export default function VenuesPage() {
       return <p>混雑が予測されるイベントは見つかりませんでした。</p>;
     }
 
+    const HOUR_HEIGHT = 50; // 1時間あたりの高さ（ピクセル）
+    const START_HOUR = 5;
+    const END_HOUR = 24;
+
     return (
-      <ul className="space-y-3">
-        {groupedEvents.map((group, index) => {
-          const maxScale = group.events.reduce(
-            (max, event) => Math.max(max, event.scale),
-            0,
-          );
-          return (
-            <li
-              key={index}
-              className={`p-4 rounded-lg border ${getScaleColor(maxScale)}`}
-            >
-              <div className="flex items-baseline">
-                <span className="font-bold text-xl">
-                  {String(group.start_hour).padStart(2, "0")}:00 -{" "}
-                  {String(group.end_hour).padStart(2, "0")}:00
-                </span>
-                <span className="text-sm ml-2">({group.label})</span>
+      // --- 全体を固定高のスクロールコンテナで囲む ---
+      <div className="max-h-[600px] overflow-y-auto border rounded-lg max-w-md mx-auto">
+        <div className="relative flex">
+          {/* 時間軸 */}
+          <div className="w-16 text-right pr-2 pt-2">
+            {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
+              <div
+                key={i}
+                className="text-xs text-gray-500"
+                style={{ height: `${HOUR_HEIGHT}px` }}
+              >
+                {String(START_HOUR + i).padStart(2, "0")}:00
               </div>
-              <ul className="list-disc list-inside mt-2 pl-2 space-y-1">
-                {group.events.map((event, eventIndex) => (
-                  <li key={eventIndex} className="font-semibold">
-                    {event.venue_name} - {event.event_name}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          );
-        })}
-      </ul>
+            ))}
+          </div>
+
+          {/* タイムライン本体 */}
+          <div
+            className="relative flex-1 border-l border-gray-200"
+            style={{
+              height: `${(END_HOUR - START_HOUR + 1) * HOUR_HEIGHT}px`,
+            }}
+          >
+            {/* 時間区切りの線 */}
+            {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
+              <div
+                key={i}
+                className="absolute w-full border-t border-gray-200"
+                style={{ top: `${i * HOUR_HEIGHT}px` }}
+              />
+            ))}
+
+            {/* イベントブロック */}
+            {groupedEvents.map((group, index) => {
+              const top = (group.start_hour - START_HOUR) * HOUR_HEIGHT;
+              // 最低でも30分の高さは確保する
+              const height = Math.max(
+                (group.end_hour - group.start_hour) * HOUR_HEIGHT,
+                HOUR_HEIGHT / 2,
+              );
+              const bgColor = getScaleColor(group.totalScale);
+
+              return (
+                <div
+                  key={index}
+                  className={`absolute left-2 p-2 rounded-md border ${bgColor} overflow-hidden cursor-pointer hover:opacity-80 w-[calc(100%-1rem)]`}
+                  style={{
+                    top: `${top}px`,
+                    height: `${height - 4}px`, // paddingとborder分を引く
+                    lineHeight: "1.2",
+                  }}
+                  onClick={() => {
+                    setSelectedGroup(group);
+                    setIsModalOpen(true);
+                  }}
+                >
+                  <div className="font-bold text-xs">
+                    混雑度: {group.totalScale}/10
+                  </div>
+                  <div className="text-xs truncate">
+                    {group.eventCount === 1
+                      ? group.events[0].event_name
+                      : `${group.eventCount}件のイベント`}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
     );
   };
 
   return (
-    <main className="p-4">
-      <h1 className="text-2xl font-bold mb-4">
-        「{stationName}」周辺の施設 ({date})
-      </h1>
+    <>
+      <main className="p-4">
+        <h1 className="text-2xl font-bold mb-4">
+          「{stationName}」周辺の施設 ({date})
+        </h1>
 
-      {/* Station Image */}
-      <div className="relative mb-4 w-full aspect-[16/9] max-h-60 overflow-hidden rounded-md shadow-md">
+        {/* Station Image */}
+        <div className="relative mb-4 w-full aspect-[16/9] max-h-60 overflow-hidden rounded-md shadow-md">
           {stationImageUrl ? (
             <div className="max-w-xs mx-auto">
               <Image
@@ -390,9 +444,42 @@ export default function VenuesPage() {
               画像なし
             </div>
           )}
-      </div>
+        </div>
 
-      {renderContent()}
-    </main>
+        {renderContent()}
+      </main>
+
+      {/* Modal Window */}
+      {isModalOpen && selectedGroup && (
+        <div className="fixed inset-0 bg-black bg-opacity-25 flex justify-center items-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-black">
+                {String(selectedGroup.start_hour).padStart(2, "0")}:00 -{" "}
+                {String(selectedGroup.end_hour).padStart(2, "0")}:00 のイベント
+              </h2>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-gray-500 hover:text-gray-800"
+              >
+                &times;
+              </button>
+            </div>
+            <ul className="space-y-2">
+              {selectedGroup.events.map((event, index) => (
+                <li key={index} className="border-b pb-2">
+                  <p className="font-semibold text-black">
+                    {event.venue_name} - {event.event_name}
+                  </p>
+                  <p className="text-sm text-black">
+                    混雑度: {event.scale}/10
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
