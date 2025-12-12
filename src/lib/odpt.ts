@@ -10,6 +10,20 @@ export type StationOption = {
   value: string;
 };
 
+interface OdptRailway {
+  "dc:title"?: string;
+  "odpt:railwayTitle"?: { ja?: string };
+  "owl:sameAs": string;
+  "odpt:color"?: string;
+  "odpt:lineCode"?: string;
+}
+
+interface OdptStation {
+  "dc:title"?: string;
+  "odpt:stationTitle"?: { ja?: string };
+  "owl:sameAs": string;
+}
+
 export async function fetchRailwayOptions(): Promise<RailwayOption[]> {
   const key = process.env.ODPT_CONSUMER_KEY;
   if (!key) {
@@ -23,7 +37,7 @@ export async function fetchRailwayOptions(): Promise<RailwayOption[]> {
     throw new Error(`Failed to fetch railways: ${res.status}`);
   }
 
-  const rows: any[] = await res.json();
+  const rows: OdptRailway[] = await res.json();
 
   return rows
     .map((r) => ({
@@ -53,7 +67,7 @@ export async function fetchStationsByRailway(
     throw new Error(`Failed to fetch stations: ${res.status}`);
   }
 
-  const rows: any[] = await res.json();
+  const rows: OdptStation[] = await res.json();
 
   return rows
     .map((r) => ({
@@ -62,4 +76,3 @@ export async function fetchStationsByRailway(
     }))
     .sort((a, b) => a.label.localeCompare(b.label, "ja"));
 }
-
