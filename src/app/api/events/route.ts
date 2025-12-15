@@ -1,4 +1,3 @@
-// src/app/api/events/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import {
   GoogleGenerativeAI,
@@ -10,9 +9,10 @@ const API_KEY = process.env.GEMINI_API_KEY;
 
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
+// Per user instruction, using the new `google_search` tool with their specified model.
 const model = genAI
   ? genAI.getGenerativeModel({
-      model: "gemini-2.0-flash-exp",
+      model: "gemini-2.5-pro",
       tools: [{ "google_search": {} }],
     })
   : null;
@@ -54,13 +54,13 @@ const SYSTEM_PROMPT = `あなたは、特定の日付と場所におけるイベ
 ### 実行タスク
 1. 指定された日付に、各施設で行われるイベントを特定します。**各施設について必ず検索を実行し、少しでも関連する可能性のあるイベントは全て報告してください。**
 2. イベントが見つかった場合、そのイベントの規模や予想来場者数を推測します。
-3. その情報を元に「イベント規模(混雑度)」を1〜10の10段階で評価します。
+3. その情報を元に「イベント規模（混雑度）」を1〜10の10段階で評価します。
 4. 結果を以下のJSONフォーマットのみで出力してください。Markdownのコードブロックは不要です。
 
-### 評価基準(イベント規模 1-10)
-- **10**: ドーム・アリーナクラスの満員イベント(数万人規模)、周辺道路の大渋滞や電車遅延が予想される。
-- **8**: 大ホール満員、または大型商業施設のセール・特異日(数千人〜1万人規模)。
-- **5**: 中規模ホール、小規模な展示会、または週末の通常混雑(数百人〜千人規模)。
+### 評価基準（イベント規模 1-10）
+- **10**: ドーム・アリーナクラスの満員イベント（数万人規模）、周辺道路の大渋滞や電車遅延が予想される。
+- **8**: 大ホール満員、または大型商業施設のセール・特異日（数千人〜1万人規模）。
+- **5**: 中規模ホール、小規模な展示会、または週末の通常混雑（数百人〜千人規模）。
 - **3**: 小規模イベント、または平日のやや混雑。
 - **1**: イベントなし、または通常営業。
 
@@ -68,9 +68,9 @@ const SYSTEM_PROMPT = `あなたは、特定の日付と場所におけるイベ
 [
   {
     "facility_name": "施設名",
-    "event_name": "イベント名(イベントがない場合はnull)",
-    "scale": 数値(1〜10),
-    "reason": "評価の理由(例: 人気アーティストのライブのため / イベント情報なしのため)"
+    "event_name": "イベント名（イベントがない場合はnull）",
+    "scale": 数値（1〜10）,
+    "reason": "評価の理由（例: 人気アーティストのライブのため / イベント情報なしのため）"
   }
 ]
 `;
@@ -100,22 +100,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ detail: "Invalid JSON in request body." }, { status: 400 });
   }
 
+
   try {
     const prompt = SYSTEM_PROMPT.replace("{{target_date}}", target_date).replace(
       "{{facility_list}}",
       JSON.stringify(facility_list),
     );
 
-    const result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig,
-      safetySettings,
-    });
-
+    const result = await model.generateContent(prompt);
     const responseText = result.response.text();
 
     try {
-      // JSONコードブロックを除去
       const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
       const cleanedText = jsonMatch ? jsonMatch[1] : responseText;
       const events = JSON.parse(cleanedText);
@@ -131,6 +126,7 @@ export async function POST(request: NextRequest) {
         { status: 500 },
       );
     }
+
   } catch (error: any) {
     console.error("Gemini API Error:", error);
     const errorMessage = error.message || "An unknown error occurred";
