@@ -1,6 +1,6 @@
+// src/app/api/search-venues/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-// --- .envから設定を読み込む ---
 const CLIENT_ID = process.env.YAHOO_CLIENT_ID;
 
 // --- APIのエンドポイント  ---
