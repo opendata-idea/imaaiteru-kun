@@ -23,7 +23,7 @@ export default function RailwaySelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="px-4 py-2 border border-gray-300 rounded-md"
+        className="w-full bg-pink-100 text-gray-900 rounded-lg px-4 py-3 text-left outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
       >
         <option value="" disabled>
           路線を選択
