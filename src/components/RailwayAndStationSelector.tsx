@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import type { RailwayOption, StationOption } from "@/lib/odpt";
 import RailwaySelect from "./RailwaySelect";
-import { RailwayOption, StationOption } from "@/lib/odpt";
 
 type RailwayAndStationSelectorProps = {
   railwayOptions: RailwayOption[];
@@ -17,6 +17,11 @@ export default function RailwayAndStationSelector({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Set to midnight
+    return today.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+  });
   const router = useRouter();
 
   useEffect(() => {
@@ -54,12 +59,25 @@ export default function RailwayAndStationSelector({
       (s) => s.value === selectedStation,
     )?.label;
     if (stationName) {
-      router.push(`/venues?stationName=${encodeURIComponent(stationName)}`);
+      router.push(
+        `/venues?stationName=${encodeURIComponent(
+          stationName,
+        )}&date=${selectedDate}`,
+      );
     }
   };
 
   return (
     <div className="p-4 space-y-4">
+      <div>
+        <h2 className="text-xl font-bold mb-2">日付選択</h2>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-md"
+        />
+      </div>
       <div>
         <h2 className="text-xl font-bold mb-2">路線選択</h2>
         <RailwaySelect
@@ -91,6 +109,7 @@ export default function RailwayAndStationSelector({
                 ))}
               </select>
               <button
+                type="button"
                 onClick={handleSearch}
                 disabled={!selectedStation}
                 className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300"
