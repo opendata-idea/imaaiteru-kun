@@ -93,21 +93,29 @@ export default function RailwayAndStationSelector({
           {isLoading && <p className="text-sm text-gray-600">読み込み中...</p>}
           {error && <p className="text-red-500">{error}</p>}
           {!isLoading && !error && stations.length > 0 && (
-            <div className="flex flex-col gap-4">
-              <select
-                value={selectedStation}
-                onChange={(e) => setSelectedStation(e.target.value)}
-                className="w-full bg-pink-100 text-gray-900 rounded-lg px-4 py-3 text-left outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
-              >
-                <option value="" disabled>
-                  駅を選択
-                </option>
-                {stations.map((station) => (
-                  <option key={station.value} value={station.value}>
-                    {station.label}
+            <div className="flex flex-col gap-8">
+              <div className="relative">
+                <select
+                  value={selectedStation}
+                  onChange={(e) => setSelectedStation(e.target.value)}
+                  className="w-full appearance-none bg-pink-100 text-gray-900 rounded-lg px-4 py-3 pr-10 text-left outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
+                >
+                  <option value="" disabled>
+                    駅を選択
                   </option>
-                ))}
-              </select>
+                  {stations.map((station) => (
+                    <option key={station.value} value={station.value}>
+                      {station.label}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-gray-600"
+                >
+                  ▼
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={handleSearch}
