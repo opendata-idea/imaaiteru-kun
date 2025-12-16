@@ -56,30 +56,30 @@ export default function RailwayAndStationSelector({
   const handleSearch = () => {
     if (!selectedStation) return;
     const stationName = stations.find(
-      (s) => s.value === selectedStation,
+      (s) => s.value === selectedStation
     )?.label;
     if (stationName) {
       router.push(
         `/venues?stationName=${encodeURIComponent(
-          stationName,
-        )}&date=${selectedDate}`,
+          stationName
+        )}&date=${selectedDate}`
       );
     }
   };
 
   return (
-    <div className="p-4 space-y-4">
-      <div>
-        <h2 className="text-xl font-bold mb-2">日付選択</h2>
+    <div className="w-full max-w-md mx-auto space-y-6">
+      <div className="space-y-3">
+        <h2 className="block text-sm font-medium text-gray-800">日付選択</h2>
         <input
           type="date"
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-md"
+          className="w-full bg-pink-100 text-gray-900 rounded-lg px-4 py-3 outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
         />
       </div>
-      <div>
-        <h2 className="text-xl font-bold mb-2">路線選択</h2>
+      <div className="space-y-3">
+        <h2 className="block text-sm font-medium text-gray-800">路線選択</h2>
         <RailwaySelect
           options={railwayOptions}
           value={selectedRailway}
@@ -88,38 +88,48 @@ export default function RailwayAndStationSelector({
       </div>
 
       {selectedRailway && (
-        <div>
-          <h2 className="text-xl font-bold mb-2">駅選択</h2>
-          {isLoading && <p>読み込み中...</p>}
+        <div className="space-y-3">
+          <h2 className="block text-sm font-medium text-gray-800">駅選択</h2>
+          {isLoading && <p className="text-sm text-gray-600">読み込み中...</p>}
           {error && <p className="text-red-500">{error}</p>}
           {!isLoading && !error && stations.length > 0 && (
-            <div className="flex items-center space-x-2">
-              <select
-                value={selectedStation}
-                onChange={(e) => setSelectedStation(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-md"
-              >
-                <option value="" disabled>
-                  駅を選択
-                </option>
-                {stations.map((station) => (
-                  <option key={station.value} value={station.value}>
-                    {station.label}
+            <div className="flex flex-col gap-8">
+              <div className="relative">
+                <select
+                  value={selectedStation}
+                  onChange={(e) => setSelectedStation(e.target.value)}
+                  className="w-full appearance-none bg-pink-100 text-gray-900 rounded-lg px-4 py-3 pr-10 text-left outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
+                >
+                  <option value="" disabled>
+                    駅を選択
                   </option>
-                ))}
-              </select>
+                  {stations.map((station) => (
+                    <option key={station.value} value={station.value}>
+                      {station.label}
+                    </option>
+                  ))}
+                </select>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-gray-600"
+                >
+                  ▼
+                </span>
+              </div>
               <button
                 type="button"
                 onClick={handleSearch}
                 disabled={!selectedStation}
-                className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-300"
+                className="w-full bg-pink-200 hover:bg-pink-300 text-gray-800 font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
               >
                 検索
               </button>
             </div>
           )}
           {!isLoading && !error && stations.length === 0 && (
-            <p>駅情報が見つかりませんでした。</p>
+            <p className="text-sm text-gray-600">
+              駅情報が見つかりませんでした。
+            </p>
           )}
         </div>
       )}

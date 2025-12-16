@@ -19,11 +19,11 @@ export default function RailwaySelect({
   onChange,
 }: RailwaySelectProps) {
   return (
-    <div>
+    <div className="relative">
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="px-4 py-2 border border-gray-300 rounded-md"
+        className="w-full appearance-none bg-pink-100 text-gray-900 rounded-lg px-4 py-3 pr-10 text-left outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
       >
         <option value="" disabled>
           路線を選択
@@ -34,6 +34,12 @@ export default function RailwaySelect({
           </option>
         ))}
       </select>
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-gray-600"
+      >
+        ▼
+      </span>
     </div>
   );
 }
