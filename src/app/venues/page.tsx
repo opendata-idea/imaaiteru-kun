@@ -78,6 +78,24 @@ const getScaleColor = (scale: number) => {
 
 // --- コンポーネント ---
 
+const ProgressBar = ({
+  progress,
+  message,
+}: {
+  progress: number;
+  message: string;
+}) => (
+  <div className="w-full max-w-md mx-auto space-y-3">
+    <p className="text-center text-sm text-gray-600">{message}</p>
+    <div className="w-full bg-gray-200 rounded-full h-2.5">
+      <div
+        className="bg-pink-400 h-2.5 rounded-full transition-all duration-500"
+        style={{ width: `${progress}%` }}
+      />
+    </div>
+  </div>
+);
+
 export default function VenuesPage() {
   const searchParams = useSearchParams();
   const stationName = searchParams.get("stationName");
@@ -92,6 +110,8 @@ export default function VenuesPage() {
   const [stationImageUrl, setStationImageUrl] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupedEvent | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
 
   useEffect(() => {
     if (!stationName || !date) {
@@ -102,6 +122,8 @@ export default function VenuesPage() {
 
     const fetchAllData = async () => {
       setIsLoading(true);
+      setProgress(0);
+      setProgressMessage("準備中...");
       setError(null);
       setVenueData(null);
       setEventData(null);
@@ -110,6 +132,8 @@ export default function VenuesPage() {
 
       try {
         // 1. まず会場情報を取得して、後続処理に必要な座標と施設リストを得る
+        setProgress(10);
+        setProgressMessage("周辺の施設を検索しています...");
         const venueRes = await fetch(
           `/api/search-venues?stationName=${stationName}`,
         );
@@ -122,14 +146,17 @@ export default function VenuesPage() {
         }
         const venuesData: VenueData = await venueRes.json();
         setVenueData(venuesData);
+        setProgress(30);
 
         const { coordinates } = venuesData;
         const venueFeatures = venuesData.venue_results.Feature;
 
         // 2. イベント情報取得と画像取得を並列で実行
         const eventPromise = (async () => {
+          setProgressMessage("イベント情報を分析し、混雑を予測しています... (AI)");
           if (venueFeatures.length === 0) {
             setEventData([]); // 会場がなければイベントもない
+            setProgress((p) => p + 60); // このステップの分の進捗を加算
             return;
           }
 
@@ -160,10 +187,12 @@ export default function VenuesPage() {
             facility.events.some((event) => event.scale >= 5),
           );
           setHasCongestedEvents(hasAnyCongestedEvent);
+          setProgress((p) => p + 60); // AI処理が重いので60%分
         })();
 
         const imagePromise = (async () => {
           if (!coordinates?.lat || !coordinates.lon) {
+            setProgress((p) => p + 10); // このステップの分の進捗を加算
             return; // 座標がなければ何もしない
           }
 
@@ -255,18 +284,26 @@ export default function VenuesPage() {
           } catch (e) {
             console.error("Failed to fetch station image", e);
           }
+          setProgress((p) => p + 10); // 画像取得分として10%
         })();
 
         // 両方の処理が終わるのを待つ
         await Promise.all([eventPromise, imagePromise]);
+        setProgressMessage("完了！");
+        setProgress(100);
       } catch (e: unknown) {
         if (e instanceof Error) {
           setError(e.message || "データの取得に失敗しました。");
         } else {
           setError("データの取得中に不明なエラーが発生しました。");
         }
+        setProgress(100); // エラー時もバーを100%にして終了を示す
+        setProgressMessage("エラーが発生しました");
       } finally {
-        setIsLoading(false);
+        // 完了またはエラーメッセージを少しの間表示させる
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 500);
       }
     };
 
@@ -334,7 +371,7 @@ export default function VenuesPage() {
 
   const renderContent = () => {
     if (isLoading) {
-      return <p>周辺の施設とイベント情報を検索中...</p>;
+      return <ProgressBar progress={progress} message={progressMessage} />;
     }
 
     if (error) {
