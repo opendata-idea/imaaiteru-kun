@@ -108,162 +108,166 @@ export default function VenuesPage() {
       setGroupedEvents([]);
       setStationImageUrl(null);
 
-      // --- Wikipedia画像取得用の関数 ---
-      const fetchStationImage = async (
-        lat: string,
-        lon: string,
-        stationName: string,
-      ) => {
-        let stationPageTitle: string | null = null;
-
-        // 1. 座標から周辺のWikipediaページを検索 (geosearch)
-        const geoSearchParams = new URLSearchParams({
-          action: "query",
-          list: "geosearch",
-          gscoord: `${lat}|${lon}`,
-          gsradius: "1000", // 1km圏内
-          gslimit: "30",
-          format: "json",
-          origin: "*",
-        });
-        const geoSearchUrl = `https://ja.wikipedia.org/w/api.php?${geoSearchParams.toString()}`;
-
-        try {
-          const geoRes = await fetch(geoSearchUrl);
-          if (!geoRes.ok) throw new Error("Wikipedia geosearch failed");
-          const geoData = await geoRes.json();
-          const pages = geoData.query.geosearch;
-          console.log("Wikipedia geosearch results:", pages); // デバッグログ
-
-          // 検索結果から「駅」を含むタイトルを探す
-          for (const page of pages) {
-            if (page.title.includes("駅")) {
-              stationPageTitle = page.title;
-              console.log("Found station page title:", stationPageTitle); // デバッグログ
-              break;
-            }
-          }
-        } catch (e) {
-          console.error("Failed to geosearch Wikipedia", e);
-          // geosearchに失敗してもフォールバックがあるので処理を続ける
-        }
-
-        // 2. geosearchで見つからなかった場合、駅名で直接検索するフォールバック
-        if (!stationPageTitle) {
-          console.warn(
-            "No station page found via geosearch, falling back to title search.",
+      try {
+        // 1. まず会場情報を取得して、後続処理に必要な座標と施設リストを得る
+        const venueRes = await fetch(
+          `/api/search-venues?stationName=${stationName}`,
+        );
+        if (!venueRes.ok) {
+          const errorData = await venueRes.json();
+          throw new Error(
+            errorData.detail ||
+              `会場の検索に失敗しました (HTTP ${venueRes.status})`,
           );
-          stationPageTitle = stationName.endsWith("駅")
-            ? stationName
-            : `${stationName}駅`;
         }
+        const venuesData: VenueData = await venueRes.json();
+        setVenueData(venuesData);
 
-        // 3. 見つかったページのタイトルで画像URLを取得
-        const imageParams = new URLSearchParams({
-          action: "query",
-          prop: "pageimages",
-          titles: stationPageTitle,
-          format: "json",
-          pithumbsize: "500",
-          origin: "*",
-        });
-        const imageUrl = `https://ja.wikipedia.org/w/api.php?${imageParams.toString()}`;
+        const { coordinates } = venuesData;
+        const venueFeatures = venuesData.venue_results.Feature;
 
-        try {
-          const imgRes = await fetch(imageUrl);
-          if (!imgRes.ok) throw new Error("Wikipedia pageimage fetch failed");
-          const imgData = await imgRes.json();
-          const imgPages = imgData.query.pages;
-          const pageId = Object.keys(imgPages)[0];
+        // 2. イベント情報取得と画像取得を並列で実行
+        const eventPromise = (async () => {
+          if (venueFeatures.length === 0) {
+            setEventData([]); // 会場がなければイベントもない
+            return;
+          }
 
-          if (pageId !== "-1") {
-            const thumbnail = imgPages[pageId].thumbnail;
-            if (thumbnail) {
-              setStationImageUrl(thumbnail.source);
+          const facilityList = venueFeatures.map((venue) => venue.Name);
+          const eventRes = await fetch("/api/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              target_date: date,
+              facility_list: facilityList,
+              station_name: stationName,
+            }),
+          });
+
+          if (!eventRes.ok) {
+            const errorData = await eventRes.json();
+            let errorMessage =
+              errorData.detail || "イベント情報の取得に失敗しました。";
+            if (errorData.error) {
+              errorMessage += ` (詳細: ${errorData.error})`;
             }
-          } else {
-            console.warn(`No image found for title: ${stationPageTitle}`);
+            throw new Error(errorMessage); // Promise.allでキャッチさせる
           }
-        } catch (e) {
-          console.error("Failed to fetch station image", e);
-        }
-      };
 
-      // --- 会場とイベント情報を取得する非同期処理 ---
-      const fetchVenueAndEventData = async () => {
-        let coords: { lat: string; lon: string } | null = null;
-        try {
-          // 1. Fetch venues (and coordinates)
-          const venueRes = await fetch(
-            `/api/search-venues?stationName=${stationName}`,
+          const eventsData: FacilityWithEvents[] = await eventRes.json();
+          setEventData(eventsData);
+          const hasAnyCongestedEvent = eventsData.some((facility) =>
+            facility.events.some((event) => event.scale >= 5),
           );
-          if (!venueRes.ok) {
-            const errorData = await venueRes.json();
-            throw new Error(
-              errorData.detail ||
-                `会場の検索に失敗しました (HTTP ${venueRes.status})`,
-            );
+          setHasCongestedEvents(hasAnyCongestedEvent);
+        })();
+
+        const imagePromise = (async () => {
+          if (!coordinates?.lat || !coordinates.lon) {
+            return; // 座標がなければ何もしない
           }
-          const venues: VenueData = await venueRes.json();
-          setVenueData(venues);
-          coords = venues.coordinates; // 座標を取得
 
-          // 2. Fetch events if venues are found
-          if (venues.venue_results.Feature.length > 0) {
-            const facilityList = venues.venue_results.Feature.map(
-              (venue) => venue.Name,
-            );
+          let stationPageTitle: string | null = null;
+          const { lat, lon } = coordinates;
 
-            const eventRes = await fetch("/api/events", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                target_date: date,
-                facility_list: facilityList,
-                station_name: stationName,
-              }),
-            });
+          // 2-1. 座標から周辺のWikipediaページを検索 (geosearch)
+          const geoSearchParams = new URLSearchParams({
+            action: "query",
+            list: "geosearch",
+            gscoord: `${lat}|${lon}`,
+            gsradius: "1000",
+            gslimit: "30",
+            format: "json",
+            origin: "*",
+          });
+          const geoSearchUrl = `https://ja.wikipedia.org/w/api.php?${geoSearchParams.toString()}`;
 
-            if (!eventRes.ok) {
-              const errorData = await eventRes.json();
-              let errorMessage =
-                errorData.detail || "イベント情報の取得に失敗しました。";
-              if (errorData.error) {
-                errorMessage += ` (詳細: ${errorData.error})`;
+          try {
+            const geoRes = await fetch(geoSearchUrl);
+            if (geoRes.ok) {
+              const geoData = await geoRes.json();
+              const pages = geoData.query.geosearch;
+
+              // 優先度1: stationNameと完全に一致するタイトルを探す (例: "東京駅")
+              const exactMatchTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
+              for (const page of pages) {
+                if (page.title === exactMatchTitle) {
+                  stationPageTitle = page.title;
+                  break;
+                }
               }
-              setError(errorMessage);
-              // setSortedVenues(venues.venue_results.Feature); // 不要なので削除
-            } else {
-              const eventsData: FacilityWithEvents[] = await eventRes.json();
-              setEventData(eventsData);
-              // 混雑するイベント（scale >= 5）が1つでも存在するかチェック
-              const hasAnyCongestedEvent = eventsData.some((facility) =>
-                facility.events.some((event) => event.scale >= 5),
-              );
-              setHasCongestedEvents(hasAnyCongestedEvent);
+
+              // 優先度2: stationNameを含み、かつ「駅」を含むタイトルを探す (例: "東京駅 (JR)")
+              if (!stationPageTitle) {
+                for (const page of pages) {
+                  if (page.title.includes(stationName) && page.title.includes("駅")) {
+                    stationPageTitle = page.title;
+                    break;
+                  }
+                }
+              }
+
+              // 優先度3: 「駅」を含むタイトルを探す (既存のロジック)
+              if (!stationPageTitle) {
+                for (const page of pages) {
+                  if (page.title.includes("駅")) {
+                    stationPageTitle = page.title;
+                    break;
+                  }
+                }
+              }
             }
-          } else {
-            setGroupedEvents([]); // イベントがない場合は空にする
+          } catch (e) {
+            console.error("Failed to geosearch Wikipedia", e);
           }
-        } catch (e: unknown) {
-          if (e instanceof Error) {
-            setError(e.message || "データの取得に失敗しました。");
-          } else {
-            setError("データの取得中に不明なエラーが発生しました。");
+
+          // 2-2. geosearchで見つからなかった場合、駅名で直接検索
+          if (!stationPageTitle) {
+            stationPageTitle = stationName.endsWith("駅")
+              ? stationName
+              : `${stationName}駅`;
           }
+
+          // 2-3. 見つかったページのタイトルで画像URLを取得
+          const imageParams = new URLSearchParams({
+            action: "query",
+            prop: "pageimages",
+            titles: stationPageTitle,
+            format: "json",
+            pithumbsize: "500",
+            origin: "*",
+          });
+          const imageUrl = `https://ja.wikipedia.org/w/api.php?${imageParams.toString()}`;
+
+          try {
+            const imgRes = await fetch(imageUrl);
+            if (imgRes.ok) {
+              const imgData = await imgRes.json();
+              const imgPages = imgData.query.pages;
+              const pageId = Object.keys(imgPages)[0];
+              if (pageId !== "-1") {
+                const thumbnail = imgPages[pageId].thumbnail;
+                if (thumbnail) {
+                  setStationImageUrl(thumbnail.source);
+                }
+              }
+            }
+          } catch (e) {
+            console.error("Failed to fetch station image", e);
+          }
+        })();
+
+        // 両方の処理が終わるのを待つ
+        await Promise.all([eventPromise, imagePromise]);
+      } catch (e: unknown) {
+        if (e instanceof Error) {
+          setError(e.message || "データの取得に失敗しました。");
+        } else {
+          setError("データの取得中に不明なエラーが発生しました。");
         }
-        return coords; // 座標を返す
-      };
-
-      // --- データ取得を実行 ---
-      // まず会場情報を取得して座標を得る
-      const coordinates = await fetchVenueAndEventData();
-      // 座標が得られたら、画像を取得する
-      if (coordinates?.lat && coordinates.lon) {
-        await fetchStationImage(coordinates.lat, coordinates.lon, stationName);
+      } finally {
+        setIsLoading(false);
       }
-
-      setIsLoading(false);
     };
 
     fetchAllData();
