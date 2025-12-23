@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { RailwayOption, StationOption } from "@/lib/odpt";
 import RailwaySelect from "./RailwaySelect";
+import Truck from "./Truck";
 
 type RailwayAndStationSelectorProps = {
   railwayOptions: RailwayOption[];
@@ -15,19 +16,20 @@ export default function RailwayAndStationSelector({
   const [selectedRailway, setSelectedRailway] = useState("");
   const [stations, setStations] = useState<StationOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState("");
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to midnight
-    return today.toISOString().split("T")[0]; // Format as YYYY-MM-DD
+    today.setHours(0, 0, 0, 0);
+    return today.toISOString().split("T")[0];
   });
   const router = useRouter();
 
   useEffect(() => {
     if (!selectedRailway) {
       setStations([]);
-      setSelectedStation(""); // 路線がクリアされたら駅もクリア
+      setSelectedStation("");
       return;
     }
 
@@ -41,7 +43,7 @@ export default function RailwayAndStationSelector({
         }
         const data: StationOption[] = await res.json();
         setStations(data);
-        setSelectedStation(""); // 新しい駅リストが来たら選択をリセット
+        setSelectedStation("");
       } catch (e) {
         setError("駅情報の取得に失敗しました");
         console.error(e);
@@ -53,12 +55,21 @@ export default function RailwayAndStationSelector({
     fetchStations();
   }, [selectedRailway]);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!selectedStation) return;
+    
     const stationName = stations.find(
       (s) => s.value === selectedStation
     )?.label;
+    
     if (stationName) {
+      console.log('🚀 検索開始 - Truck表示');
+      setIsSearching(true);
+      
+      // 5秒間Truckを表示
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      console.log('✅ ページ遷移開始');
       router.push(
         `/venues?stationName=${encodeURIComponent(
           stationName
@@ -66,6 +77,11 @@ export default function RailwayAndStationSelector({
       );
     }
   };
+
+  // 検索中はTruckを全画面表示
+  if (isSearching) {
+    return <Truck />;
+  }
 
   return (
     <div className="w-full max-w-md mx-auto space-y-6">
@@ -119,10 +135,10 @@ export default function RailwayAndStationSelector({
               <button
                 type="button"
                 onClick={handleSearch}
-                disabled={!selectedStation}
+                disabled={!selectedStation || isSearching}
                 className="w-full bg-pink-200 hover:bg-pink-300 text-gray-800 font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
               >
-                検索
+                {isSearching ? '検索中...' : '検索'}
               </button>
             </div>
           )}

@@ -1,3 +1,4 @@
+
 import { type NextRequest, NextResponse } from "next/server";
 
 // --- .envから設定を読み込む ---
@@ -128,6 +129,10 @@ export async function GET(request: NextRequest) {
     "ゴルフ練習場",
     "趣味、習い事",
     "ファッション、アクセサリー、時計",
+    "ゲームセンター",
+    "農林水産団体",
+    "スポーツ教室",
+    "市区町村機関"
   ]);
   const categoryFilteredFeatures = originalFeatures.filter(
     (venue: YahooVenueFeature) => {

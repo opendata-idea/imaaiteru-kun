@@ -12,7 +12,7 @@ const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 // Per user instruction, using the new `google_search` tool with their specified model.
 const model = genAI
   ? genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
+      model: "gemini-2.0-flash",
       tools: [{ google_search: {} }],
     })
   : null;

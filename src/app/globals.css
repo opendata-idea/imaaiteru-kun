@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=Yuji+Mai&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -24,4 +23,31 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Truck Animation Styles */
+@keyframes train-move {
+  0% {
+    transform: translateX(-1400px);
+  }
+  100% {
+    transform: translateX(calc(100vw + 400px));
+  }
+}
+
+@keyframes spin-wheel {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-train {
+  animation: train-move 8s linear infinite;
+}
+
+.animate-spin-wheel {
+  animation: spin-wheel 0.5s linear infinite;
 }
