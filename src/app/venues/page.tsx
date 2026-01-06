@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import LoadingScreen from "@/components/LoadingScreen";
 
@@ -77,6 +78,29 @@ const getScaleColor = (scale: number) => {
   return "bg-gray-100 text-gray-800 border-gray-200";
 };
 
+// --- コンポーネント ---
+
+const ProgressBar = ({
+  progress,
+  message,
+}: {
+  progress: number;
+  message: string;
+}) => (
+  <div className="w-full max-w-md mx-auto">
+    <div className="bg-pink-50 rounded-lg p-5 border border-pink-200 shadow-sm">
+      <p className="text-center text-sm text-gray-600 mb-3">{message}</p>
+      <div className="w-full bg-white rounded-full h-2.5 border border-pink-200">
+        <div
+          className="bg-pink-400 h-2.5 rounded-full transition-all duration-500"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="text-center text-xs text-gray-500 mt-3">{progress}%</p>
+    </div>
+  </div>
+);
+
 export default function VenuesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -92,6 +116,7 @@ export default function VenuesPage() {
   const [stationImageUrl, setStationImageUrl] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupedEvent | null>(null);
+  const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
 
   useEffect(() => {
@@ -103,6 +128,7 @@ export default function VenuesPage() {
 
     const fetchAllData = async () => {
       setIsLoading(true);
+      setProgress(0);
       setProgressMessage("準備中...");
       setError(null);
       setVenueData(null);
@@ -112,28 +138,33 @@ export default function VenuesPage() {
 
       try {
         // 1. まず会場情報を取得して、後続処理に必要な座標と施設リストを得る
+        setProgress(10);
         setProgressMessage("周辺の施設を検索しています...");
         const venueRes = await fetch(
-          `/api/search-venues?stationName=${stationName}`,
+          `/api/search-venues?stationName=${stationName}`
         );
         if (!venueRes.ok) {
           const errorData = await venueRes.json();
           throw new Error(
             errorData.detail ||
-              `会場の検索に失敗しました (HTTP ${venueRes.status})`,
+              `会場の検索に失敗しました (HTTP ${venueRes.status})`
           );
         }
         const venuesData: VenueData = await venueRes.json();
         setVenueData(venuesData);
+        setProgress(30);
 
         const { coordinates } = venuesData;
         const venueFeatures = venuesData.venue_results.Feature;
 
         // 2. イベント情報取得と画像取得を並列で実行
         const eventPromise = (async () => {
-          setProgressMessage("イベント情報を分析し、混雑を予測しています... (AI)");
+          setProgressMessage(
+            "イベント情報を分析し、混雑を予測しています... (AI)"
+          );
           if (venueFeatures.length === 0) {
             setEventData([]); // 会場がなければイベントもない
+            setProgress((p) => p + 60); // このステップの分の進捗を加算
             return;
           }
 
@@ -161,13 +192,15 @@ export default function VenuesPage() {
           const eventsData: FacilityWithEvents[] = await eventRes.json();
           setEventData(eventsData);
           const hasAnyCongestedEvent = eventsData.some((facility) =>
-            facility.events.some((event) => event.scale >= 5),
+            facility.events.some((event) => event.scale >= 5)
           );
           setHasCongestedEvents(hasAnyCongestedEvent);
+          setProgress((p) => p + 60); // AI処理が重いので60%分
         })();
 
         const imagePromise = (async () => {
           if (!coordinates?.lat || !coordinates.lon) {
+            setProgress((p) => p + 10); // このステップの分の進捗を加算
             return; // 座標がなければ何もしない
           }
 
@@ -193,7 +226,9 @@ export default function VenuesPage() {
               const pages = geoData.query.geosearch;
 
               // 優先度1: stationNameと完全に一致するタイトルを探す (例: "東京駅")
-              const exactMatchTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
+              const exactMatchTitle = stationName.endsWith("駅")
+                ? stationName
+                : `${stationName}駅`;
               for (const page of pages) {
                 if (page.title === exactMatchTitle) {
                   stationPageTitle = page.title;
@@ -204,7 +239,10 @@ export default function VenuesPage() {
               // 優先度2: stationNameを含み、かつ「駅」を含むタイトルを探す (例: "東京駅 (JR)")
               if (!stationPageTitle) {
                 for (const page of pages) {
-                  if (page.title.includes(stationName) && page.title.includes("駅")) {
+                  if (
+                    page.title.includes(stationName) &&
+                    page.title.includes("駅")
+                  ) {
                     stationPageTitle = page.title;
                     break;
                   }
@@ -225,20 +263,27 @@ export default function VenuesPage() {
             console.error("Failed to geosearch Wikipedia", e);
           }
 
-          // 2-2. 見つかったページのタイトルから画像を取得
-          if (stationPageTitle) {
-            const imgParams = new URLSearchParams({
-              action: "query",
-              titles: stationPageTitle,
-              prop: "pageimages",
-              pithumbsize: "500",
-              format: "json",
-              origin: "*",
-            });
-            const imgUrl = `https://ja.wikipedia.org/w/api.php?${imgParams.toString()}`;
+          // 2-2. geosearchで見つからなかった場合、駅名で直接検索
+          if (!stationPageTitle) {
+            stationPageTitle = stationName.endsWith("駅")
+              ? stationName
+              : `${stationName}駅`;
+          }
 
-            try {
-              const imgRes = await fetch(imgUrl);
+          // 2-3. 見つかったページのタイトルで画像URLを取得
+          const imageParams = new URLSearchParams({
+            action: "query",
+            prop: "pageimages",
+            titles: stationPageTitle,
+            format: "json",
+            pithumbsize: "500",
+            origin: "*",
+          });
+          const imageUrl = `https://ja.wikipedia.org/w/api.php?${imageParams.toString()}`;
+
+          try {
+            const imgRes = await fetch(imageUrl);
+            if (imgRes.ok) {
               const imgData = await imgRes.json();
               const imgPages = imgData.query.pages;
               const pageId = Object.keys(imgPages)[0];
@@ -248,21 +293,24 @@ export default function VenuesPage() {
                   setStationImageUrl(thumbnail.source);
                 }
               }
-            } catch (e) {
-              console.error("Failed to fetch station image", e);
             }
+          } catch (e) {
+            console.error("Failed to fetch station image", e);
           }
+          setProgress((p) => p + 10); // 画像取得分として10%
         })();
 
         // 両方の処理が終わるのを待つ
         await Promise.all([eventPromise, imagePromise]);
         setProgressMessage("完了！");
+        setProgress(100);
       } catch (e: unknown) {
         if (e instanceof Error) {
           setError(e.message || "データの取得に失敗しました。");
         } else {
           setError("データの取得中に不明なエラーが発生しました。");
         }
+        setProgress(100); // エラー時もバーを100%にして終了を示す
         setProgressMessage("エラーが発生しました");
       } finally {
         // 完了またはエラーメッセージを少しの間表示させる
@@ -286,8 +334,8 @@ export default function VenuesPage() {
           venue_name: facility.facility_name,
           event_name: event.event_name,
           scale: event.scale,
-        })),
-      ),
+        }))
+      )
     );
 
     // 混雑度が高い（scale >= 5）イベントのみフィルタリング
@@ -336,15 +384,35 @@ export default function VenuesPage() {
 
   const renderContent = () => {
     if (isLoading) {
-      return <LoadingScreen message={progressMessage} />;
+      return (
+        <div className="py-10">
+          <ProgressBar progress={progress} message={progressMessage} />
+        </div>
+      );
     }
 
     if (error) {
-      return <p className="text-red-500">{error}</p>;
+      return (
+        <div className="max-w-md mx-auto">
+          <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            <div className="font-bold mb-2">❌ エラーが発生しました</div>
+            <pre className="text-sm whitespace-pre-wrap">{error}</pre>
+          </div>
+        </div>
+      );
     }
 
     if (groupedEvents.length === 0) {
-      return <p>混雑が予測されるイベントは見つかりませんでした。</p>;
+      return (
+        <div className="max-w-md mx-auto">
+          <div className="bg-pink-50 rounded-lg p-6 border border-pink-200 text-center text-gray-600">
+            <p className="mb-2">
+              🎉 混雑が予測されるイベントは見つかりませんでした
+            </p>
+            <p className="text-sm">この日は比較的空いている可能性があります</p>
+          </div>
+        </div>
+      );
     }
 
     const HOUR_HEIGHT = 50; // 1時間あたりの高さ（ピクセル）
@@ -353,72 +421,74 @@ export default function VenuesPage() {
 
     return (
       // --- 全体を固定高のスクロールコンテナで囲む ---
-      <div className="max-h-[600px] overflow-y-auto border rounded-lg max-w-md mx-auto">
-        <div className="relative flex">
-          {/* 時間軸 */}
-          <div className="w-16 text-right pr-2 pt-2">
-            {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
-              <div
-                key={i}
-                className="text-xs text-gray-500"
-                style={{ height: `${HOUR_HEIGHT}px` }}
-              >
-                {String(START_HOUR + i).padStart(2, "0")}:00
-              </div>
-            ))}
-          </div>
-
-          {/* タイムライン本体 */}
-          <div
-            className="relative flex-1 border-l border-gray-200"
-            style={{
-              height: `${(END_HOUR - START_HOUR + 1) * HOUR_HEIGHT}px`,
-            }}
-          >
-            {/* 時間区切りの線 */}
-            {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
-              <div
-                key={i}
-                className="absolute w-full border-t border-gray-200"
-                style={{ top: `${i * HOUR_HEIGHT}px` }}
-              />
-            ))}
-
-            {/* イベントブロック */}
-            {groupedEvents.map((group, index) => {
-              const top = (group.start_hour - START_HOUR) * HOUR_HEIGHT;
-              // 最低でも30分の高さは確保する
-              const height = Math.max(
-                (group.end_hour - group.start_hour) * HOUR_HEIGHT,
-                HOUR_HEIGHT / 2,
-              );
-              const bgColor = getScaleColor(group.totalScale);
-
-              return (
+      <div className="max-w-md mx-auto">
+        <div className="max-h-[600px] overflow-y-auto border border-pink-200 rounded-lg bg-white shadow-sm">
+          <div className="relative flex">
+            {/* 時間軸 */}
+            <div className="w-16 text-right pr-2 pt-2">
+              {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
                 <div
-                  key={index}
-                  className={`absolute left-2 p-2 rounded-md border ${bgColor} overflow-hidden cursor-pointer hover:opacity-80 w-[calc(100%-1rem)]`}
-                  style={{
-                    top: `${top}px`,
-                    height: `${height - 4}px`, // paddingとborder分を引く
-                    lineHeight: "1.2",
-                  }}
-                  onClick={() => {
-                    setSelectedGroup(group);
-                    setIsModalOpen(true);
-                  }}
+                  key={i}
+                  className="text-xs text-gray-500"
+                  style={{ height: `${HOUR_HEIGHT}px` }}
                 >
-                  <div className="font-bold text-xs">
-                    混雑度: {group.totalScale}/10
-                  </div>
-                  <div className="text-xs truncate">
-                    {group.eventCount === 1
-                      ? group.events[0].event_name
-                      : `${group.eventCount}件のイベント`}
-                  </div>
+                  {String(START_HOUR + i).padStart(2, "0")}:00
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            {/* タイムライン本体 */}
+            <div
+              className="relative flex-1 border-l border-gray-200"
+              style={{
+                height: `${(END_HOUR - START_HOUR + 1) * HOUR_HEIGHT}px`,
+              }}
+            >
+              {/* 時間区切りの線 */}
+              {Array.from({ length: END_HOUR - START_HOUR + 1 }, (_, i) => (
+                <div
+                  key={i}
+                  className="absolute w-full border-t border-gray-200"
+                  style={{ top: `${i * HOUR_HEIGHT}px` }}
+                />
+              ))}
+
+              {/* イベントブロック */}
+              {groupedEvents.map((group, index) => {
+                const top = (group.start_hour - START_HOUR) * HOUR_HEIGHT;
+                // 最低でも30分の高さは確保する
+                const height = Math.max(
+                  (group.end_hour - group.start_hour) * HOUR_HEIGHT,
+                  HOUR_HEIGHT / 2
+                );
+                const bgColor = getScaleColor(group.totalScale);
+
+                return (
+                  <div
+                    key={index}
+                    className={`absolute left-2 p-2 rounded-md border ${bgColor} overflow-hidden cursor-pointer hover:opacity-80 w-[calc(100%-1rem)]`}
+                    style={{
+                      top: `${top}px`,
+                      height: `${height - 4}px`, // paddingとborder分を引く
+                      lineHeight: "1.2",
+                    }}
+                    onClick={() => {
+                      setSelectedGroup(group);
+                      setIsModalOpen(true);
+                    }}
+                  >
+                    <div className="font-bold text-xs">
+                      混雑度: {group.totalScale}/10
+                    </div>
+                    <div className="text-xs truncate">
+                      {group.eventCount === 1
+                        ? group.events[0].event_name
+                        : `${group.eventCount}件のイベント`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
@@ -427,58 +497,80 @@ export default function VenuesPage() {
 
   return (
     <>
-      <main className="p-4">
-        {/* 戻るボタン */}
-        <button
-          onClick={() => router.back()}
-          className="mb-4 flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            className="h-5 w-5"
-            viewBox="0 0 20 20"
-            fill="currentColor"
+      <div className="min-h-screen bg-white flex flex-col">
+        {/* ヘッダー */}
+        <div className="px-4 pt-6">
+          <Link
+            href="/"
+            className="text-pink-500 hover:text-pink-700 mb-4 inline-block"
           >
-            <path
-              fillRule="evenodd"
-              d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
-          戻る
-        </button>
+            ← 戻る
+          </Link>
 
-        <h1 className="text-2xl font-bold mb-4">
-          「{stationName}」周辺の施設 ({date})
-        </h1>
-
-        {/* Station Image */}
-        <div className="relative mb-4 w-full aspect-[16/9] max-h-60 overflow-hidden rounded-md shadow-md">
-          {stationImageUrl ? (
-            <div className="max-w-xs mx-auto">
-              <Image
-                src={stationImageUrl}
-                alt={stationName}
-                width={320}
-                height={240}
-                className="w-full h-auto rounded-lg shadow-md"
-                style={{ objectFit: "contain" }}
-              />
+          {/* Station Image */}
+          <div className="max-w-md mx-auto rounded-lg">
+            <div className="relative w-full h-52 sm:h-60 overflow-hidden rounded-lg bg-white">
+              {stationImageUrl ? (
+                <div className="absolute inset-0">
+                  <Image
+                    src={stationImageUrl}
+                    alt={stationName || "station"}
+                    width={500}
+                    height={320}
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
+                  画像なし
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="w-full h-48 bg-gray-200 rounded-lg flex items-center justify-center text-gray-500">
-              画像なし
+            <div className="pt-5 px-2 text-2xl font-bold text-gray-700">
+              {stationName}駅
             </div>
-          )}
+          </div>
         </div>
 
-        {renderContent()}
-      </main>
+        {/* 本文 */}
+        <main className="flex-1 px-6 py-2 space-y-2">
+          <div className="flex border-b">
+            <div className="text-black text-sm flex-1 py-3 text-start font-medium">
+              イベント情報
+            </div>
+            <div className="text-black text-sm flex-1 py-3 text-start font-medium">
+              運行情報
+            </div>
+          </div>
+
+          <div className="flex items-center justify-start gap-3 pt-3">
+            <h1 className="text-black text-xl font-bold">イベント情報</h1>
+          </div>
+
+          <div className="text-start text-sm text-gray-600">{date}</div>
+
+          {/* タイムライン / 状態表示 */}
+          <div className="max-w-md mx-auto rounded-lg pt-3">
+            <div className="text-sm font-medium text-gray-700 mb-3">
+              混雑が予測される時間帯
+            </div>
+            {renderContent()}
+          </div>
+        </main>
+
+        {/* 広告バナー */}
+        <div className="bg-linear-to-r from-red-500 via-green-500 to-purple-500 text-white text-center py-4 font-bold">
+          1ヶ月で15kg痩せるサプリ!!!
+        </div>
+        <div className="bg-linear-to-r from-red-500 via-green-500 to-purple-500 text-white text-center py-4 font-bold">
+          1ヶ月で１００万円稼ぐ方法!!!
+        </div>
+      </div>
 
       {/* Modal Window */}
       {isModalOpen && selectedGroup && (
-        <div className="fixed inset-0 bg-black bg-opacity-25 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full">
+        <div className="fixed inset-0 bg-black/30 flex justify-center items-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full border border-pink-200">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-black">
                 {String(selectedGroup.start_hour).padStart(2, "0")}:00 -{" "}
@@ -486,20 +578,21 @@ export default function VenuesPage() {
               </h2>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="text-gray-500 hover:text-gray-800"
+                className="text-gray-500 hover:text-pink-600"
               >
                 &times;
               </button>
             </div>
             <ul className="space-y-2">
               {selectedGroup.events.map((event, index) => (
-                <li key={index} className="border-b pb-2">
+                <li
+                  key={index}
+                  className="border-b border-pink-100 pb-2 last:border-b-0"
+                >
                   <p className="font-semibold text-black">
                     {event.venue_name} - {event.event_name}
                   </p>
-                  <p className="text-sm text-black">
-                    混雑度: {event.scale}/10
-                  </p>
+                  <p className="text-sm text-black">混雑度: {event.scale}/10</p>
                 </li>
               ))}
             </ul>
