@@ -25,3 +25,46 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Truck Animation Styles */
+@keyframes train-move {
+  0% {
+    transform: translateX(-1400px);
+  }
+  100% {
+    transform: translateX(calc(100vw + 400px));
+  }
+}
+
+@keyframes spin-wheel {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-train {
+  animation: train-move 8s linear infinite;
+}
+
+.animate-spin-wheel {
+  animation: spin-wheel 0.5s linear infinite;
+}
+
+/* Mobile tweak: ensure the train fully exits the right side before looping */
+@media (max-width: 640px) {
+  @keyframes train-move {
+    0% {
+      transform: translateX(-1400px);
+    }
+    100% {
+      transform: translateX(calc(100vw + 1400px));
+    }
+  }
+
+  .animate-train {
+    animation-duration: 12s;
+  }
+}

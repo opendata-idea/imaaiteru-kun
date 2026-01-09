@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import Truck from "@/components/Truck";
 
 // --- 型定義 ---
 
@@ -384,6 +385,9 @@ export default function VenuesPage() {
     if (isLoading) {
       return (
         <div className="py-10">
+          <div className="mb-4">
+            <Truck compact />
+          </div>
           <ProgressBar progress={progress} message={progressMessage} />
         </div>
       );
