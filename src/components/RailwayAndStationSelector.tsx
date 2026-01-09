@@ -25,11 +25,16 @@ export default function RailwayAndStationSelector({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState("");
-  const [selectedDate, setSelectedDate] = useState(() => {
+  const getTodayDateString = () => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return today.toISOString().split("T")[0];
-  });
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0'); // 月は0から始まるため+1
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getTodayDateString);
+  const minDate = getTodayDateString();
   const router = useRouter();
 
   const loadFavorites = () => {
@@ -160,6 +165,7 @@ export default function RailwayAndStationSelector({
           type="date"
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
+          min={minDate}
           className="w-full bg-pink-100 text-gray-900 rounded-lg px-4 py-3 outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
         />
       </div>
