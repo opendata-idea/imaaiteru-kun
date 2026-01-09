@@ -557,6 +557,16 @@ export default function VenuesPage() {
               混雑が予測される時間帯
             </div>
             {renderContent()}
+            {/* AIによる予測に関する注意書き */}
+            <div className="mt-6 p-4 text-xs text-gray-500 bg-gray-50 rounded-lg border border-gray-200">
+              <p className="font-semibold mb-1">【ご注意】</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>この情報はAIによる予測を含みます。</li>
+                <li>常に同じ結果が出るとは限りません。</li>
+                <li>予測やイベント表示が実際と異なる場合があります。</li>
+                <li>あくまで参考情報としてご利用ください。</li>
+              </ul>
+            </div>
           </div>
         </main>
 
