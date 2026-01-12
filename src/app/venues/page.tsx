@@ -300,7 +300,9 @@ export default function VenuesPage() {
       const lastGroup = acc[acc.length - 1];
       if (lastGroup && lastGroup.start_hour === event.start_hour && lastGroup.end_hour === event.end_hour && lastGroup.label === event.label) {
         lastGroup.events.push({ venue_name: event.venue_name, event_name: event.event_name, scale: event.scale });
-        lastGroup.totalScale = Math.min(10, lastGroup.totalScale + event.scale);
+        // 二乗和の平方根でスケールを合成する
+        const newTotalScale = Math.sqrt(Math.pow(lastGroup.totalScale, 2) + Math.pow(event.scale, 2));
+        lastGroup.totalScale = Math.min(10, Math.round(newTotalScale * 10) / 10); // 小数点第一位までに丸めて、最大10
         lastGroup.eventCount += 1;
       } else {
         acc.push({
