@@ -135,7 +135,7 @@ export default function RailwayAndStationSelector({
       router.push(
         `/venues?stationName=${encodeURIComponent(
           stationName
-        )}&date=${selectedDate}`
+        )}&date=${selectedDate}&stationId=${encodeURIComponent(selectedStation)}`
       );
     }
   };

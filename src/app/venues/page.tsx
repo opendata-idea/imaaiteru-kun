@@ -16,70 +16,41 @@ const getTodayDateString = () => {
 };
 
 // --- 型定義 ---
-
 interface Venue {
   Id: string;
   Name: string;
-  Property: {
-    Address: string;
-    Genre: {
-      Name: string;
-    }[];
-  };
+  Property: { Address: string; Genre: { Name: string; }[]; };
 }
-
-// 混雑予測の時間帯ごとの情報
 interface CongestionPrediction {
   start_hour: number;
   end_hour: number;
   label: string;
 }
-
-// 個々のイベント情報を表す型
 interface EventInfo {
   event_name: string | null;
   scale: number;
   reason: string;
   congestion_predictions: CongestionPrediction[];
 }
-
-// APIから返される施設ごとのイベントリストの型
 interface FacilityWithEvents {
   facility_name: string;
   events: EventInfo[];
 }
-
-// 時間帯でグループ化された、表示用のイベント情報
 interface GroupedEvent {
   start_hour: number;
   end_hour: number;
   label: string;
-  events: {
-    venue_name: string;
-    event_name: string | null;
-    scale: number;
-  }[];
+  events: { venue_name: string; event_name: string | null; scale: number; }[];
   totalScale: number;
   eventCount: number;
 }
-
 interface VenueData {
   search_station: string;
-  coordinates: {
-    lat: string;
-    lon: string;
-  };
-  venue_results: {
-    ResultInfo: {
-      Count: number;
-    };
-    Feature: Venue[];
-  };
+  coordinates: { lat: string; lon: string; };
+  venue_results: { ResultInfo: { Count: number; }; Feature: Venue[]; };
 }
 
 // --- ヘルパー関数 ---
-
-// 混雑度のスケールに応じて色を返す
 const getScaleColor = (scale: number) => {
   if (scale >= 8) return "bg-red-100 text-red-800 border-red-200";
   if (scale >= 5) return "bg-yellow-100 text-yellow-800 border-yellow-200";
@@ -88,22 +59,12 @@ const getScaleColor = (scale: number) => {
 };
 
 // --- コンポーネント ---
-
-const ProgressBar = ({
-  progress,
-  message,
-}: {
-  progress: number;
-  message: string;
-}) => (
+const ProgressBar = ({ progress, message }: { progress: number; message: string; }) => (
   <div className="w-full max-w-md mx-auto">
     <div className="bg-pink-50 rounded-lg p-5 border border-pink-200 shadow-sm">
       <p className="text-center text-sm text-gray-600 mb-3">{message}</p>
       <div className="w-full bg-white rounded-full h-2.5 border border-pink-200">
-        <div
-          className="bg-pink-400 h-2.5 rounded-full transition-all duration-500"
-          style={{ width: `${progress}%` }}
-        />
+        <div className="bg-pink-400 h-2.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
       </div>
       <p className="text-center text-xs text-gray-500 mt-3">{progress}%</p>
     </div>
@@ -114,6 +75,7 @@ export default function VenuesPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const stationName = searchParams.get("stationName");
+  const stationId = searchParams.get("stationId");
   
   const [date, setDate] = useState(() => searchParams.get("date"));
   const isInitialMount = useRef(true);
@@ -121,10 +83,7 @@ export default function VenuesPage() {
   const [venueData, setVenueData] = useState<VenueData | null>(null);
   const [eventData, setEventData] = useState<FacilityWithEvents[] | null>(null);
   const [groupedEvents, setGroupedEvents] = useState<GroupedEvent[]>([]);
-  
-  const [isStationLoading, setIsStationLoading] = useState(true);
-  const [isEventLoading, setIsEventLoading] = useState(true);
-
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stationImageUrl, setStationImageUrl] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -132,158 +91,160 @@ export default function VenuesPage() {
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
 
-  // Effect to handle date change and trigger refetch
+  // Effect to handle date change and trigger navigation
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-    if (stationName && date) {
-      router.push(`/venues?stationName=${stationName}&date=${date}`);
+    if (stationName && date && stationId) {
+      router.push(`/venues?stationName=${stationName}&date=${date}&stationId=${stationId}`);
     }
-  }, [date, stationName, router]);
+  }, [date, stationName, stationId, router]);
 
-  // 1. 駅関連のデータ取得 (YOLP, Wikipedia)
+  // Main data fetching effect
   useEffect(() => {
-    if (!stationName) {
-      setError("駅名が指定されていません。");
-      setIsStationLoading(false);
+    if (!stationName || !date || !stationId) {
+      setError("駅名、日付、または駅IDが指定されていません。");
+      setIsLoading(false);
       return;
     }
 
-    const fetchStationData = async () => {
-      setIsStationLoading(true);
+    const fetchAllData = async () => {
+      setIsLoading(true);
       setProgress(0);
-      setProgressMessage("周辺の施設を検索しています...");
       setError(null);
-      setVenueData(null);
-      setStationImageUrl(null);
-
-      try {
-        const venueRes = await fetch(
-          `/api/search-venues?stationName=${stationName}`
-        );
-        if (!venueRes.ok) {
-          const errorData = await venueRes.json();
-          throw new Error(
-            errorData.detail ||
-              `会場の検索に失敗しました (HTTP ${venueRes.status})`
-          );
-        }
-        const venuesData: VenueData = await venueRes.json();
-        setVenueData(venuesData);
-        setProgress(30);
-
-        const { coordinates } = venuesData;
-        if (coordinates?.lat && coordinates.lon) {
-          let stationPageTitle: string | null = null;
-          const { lat, lon } = coordinates;
-
-          const geoSearchParams = new URLSearchParams({
-            action: "query", list: "geosearch", gscoord: `${lat}|${lon}`,
-            gsradius: "1000", gslimit: "30", format: "json", origin: "*",
-          });
-          const geoSearchUrl = `https://ja.wikipedia.org/w/api.php?${geoSearchParams.toString()}`;
-
-          try {
-            const geoRes = await fetch(geoSearchUrl);
-            if (geoRes.ok) {
-              const geoData = await geoRes.json();
-              const pages = geoData.query.geosearch;
-              const exactMatchTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
-              stationPageTitle = pages.find((p: any) => p.title === exactMatchTitle)?.title ||
-                                pages.find((p: any) => p.title.includes(stationName) && p.title.includes("駅"))?.title ||
-                                pages.find((p: any) => p.title.includes("駅"))?.title;
-            }
-          } catch (e) { console.error("Failed to geosearch Wikipedia", e); }
-
-          if (!stationPageTitle) {
-            stationPageTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
-          }
-
-          const imageParams = new URLSearchParams({
-            action: "query", prop: "pageimages", titles: stationPageTitle,
-            format: "json", pithumbsize: "500", origin: "*",
-          });
-          const imageUrl = `https://ja.wikipedia.org/w/api.php?${imageParams.toString()}`;
-
-          try {
-            const imgRes = await fetch(imageUrl);
-            if (imgRes.ok) {
-              const imgData = await imgRes.json();
-              const imgPages = imgData.query.pages;
-              const pageId = Object.keys(imgPages)[0];
-              if (pageId !== "-1" && imgPages[pageId].thumbnail) {
-                setStationImageUrl(imgPages[pageId].thumbnail.source);
-              }
-            }
-          } catch (e) { console.error("Failed to fetch station image", e); }
-        }
-        setProgress(40);
-      } catch (e: any) {
-        setError(e.message || "駅情報の取得に失敗しました。");
-        setProgress(100);
-      } finally {
-        setIsStationLoading(false);
-      }
-    };
-
-    fetchStationData();
-  }, [stationName]);
-
-  // 2. イベント関連のデータ取得 (AI)
-  useEffect(() => {
-    if (!date || !venueData) {
-      if (venueData && venueData.venue_results.Feature.length === 0) {
-        setEventData([]);
-        setIsEventLoading(false);
-        setProgress(100);
-        setProgressMessage("完了！");
-      }
-      return;
-    }
-
-    const fetchEventData = async () => {
-      setIsEventLoading(true);
-      setProgress(40); // 駅情報取得後からスタート
-      setProgressMessage("イベント情報を分析し、混雑を予測しています... (AI)");
       
-      try {
-        const facilityList = venueData.venue_results.Feature.map((venue) => venue.Name);
-        const eventRes = await fetch("/api/events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            target_date: date,
-            facility_list: facilityList,
-            station_name: stationName,
-          }),
-        });
+      let currentVenueData = venueData;
 
-        if (!eventRes.ok) {
-          const errorData = await eventRes.json();
-          throw new Error(errorData.detail || "イベント情報の取得に失敗しました。");
+      try {
+        // --- Station Data Fetching Phase ---
+        if (!currentVenueData || currentVenueData.search_station !== stationName) {
+          setProgress(10);
+          setProgressMessage("周辺の施設を検索しています...");
+          setEventData(null); // 駅が変わるのでイベントデータもクリア
+          setGroupedEvents([]);
+
+          const venueRes = await fetch(`/api/search-venues?stationName=${stationName}`);
+          if (!venueRes.ok) {
+            const errorData = await venueRes.json();
+            throw new Error(errorData.detail || `会場の検索に失敗しました (HTTP ${venueRes.status})`);
+          }
+          const venuesData: VenueData = await venueRes.json();
+          setVenueData(venuesData);
+          currentVenueData = venuesData;
+          setProgress(30);
+
+          // Image fetching
+          const { coordinates } = venuesData;
+          if (coordinates?.lat && coordinates.lon) {
+            let stationPageTitle: string | null = null;
+            const { lat, lon } = coordinates;
+
+            const geoSearchParams = new URLSearchParams({
+              action: "query", list: "geosearch", gscoord: `${lat}|${lon}`,
+              gsradius: "1000", gslimit: "30", format: "json", origin: "*",
+            });
+            const geoSearchUrl = `https://ja.wikipedia.org/w/api.php?${geoSearchParams.toString()}`;
+
+            try {
+              const geoRes = await fetch(geoSearchUrl);
+              if (geoRes.ok) {
+                const geoData = await geoRes.json();
+                const pages = geoData.query.geosearch;
+                const exactMatchTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
+                stationPageTitle = pages.find((p: any) => p.title === exactMatchTitle)?.title ||
+                                  pages.find((p: any) => p.title.includes(stationName) && p.title.includes("駅"))?.title ||
+                                  pages.find((p: any) => p.title.includes("駅"))?.title;
+              }
+            } catch (e) {
+              console.error("Failed to geosearch Wikipedia", e);
+            }
+
+            if (!stationPageTitle) {
+              stationPageTitle = stationName.endsWith("駅") ? stationName : `${stationName}駅`;
+            }
+
+            const imageParams = new URLSearchParams({
+              action: "query", prop: "pageimages", titles: stationPageTitle,
+              format: "json", pithumbsize: "500", origin: "*",
+            });
+            const imageUrl = `https://ja.wikipedia.org/w/api.php?${imageParams.toString()}`;
+
+            try {
+              const imgRes = await fetch(imageUrl);
+              if (imgRes.ok) {
+                const imgData = await imgRes.json();
+                const imgPages = imgData.query.pages;
+                const pageId = Object.keys(imgPages)[0];
+                if (pageId !== "-1" && imgPages[pageId].thumbnail) {
+                  setStationImageUrl(imgPages[pageId].thumbnail.source);
+                }
+              }
+            } catch (e) {
+              console.error("Failed to fetch station image", e);
+            }
+          }
+          setProgress(40);
+        } else {
+          setProgress(40); // Skip station data fetching
         }
 
-        const eventsData: FacilityWithEvents[] = await eventRes.json();
-        setEventData(eventsData);
+        // --- Event Data Fetching Phase ---
+        if (!currentVenueData) {
+          throw new Error("会場情報の取得に失敗したため、イベント情報を取得できません。");
+        }
+        
+        setProgressMessage("イベント情報を分析し、混雑を予測しています... (AI)");
+        setEventData(null);
+        
+        const facilityList = currentVenueData.venue_results.Feature.map((venue) => venue.Name);
+
+        if (facilityList.length > 0) {
+            const eventRes = await fetch("/api/events", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                target_date: date,
+                facility_list: facilityList,
+                station_name: stationName,
+                station_id: stationId,
+              }),
+            });
+            if (!eventRes.ok) {
+              const errorData = await eventRes.json();
+              throw new Error(errorData.detail || "イベント情報の取得に失敗しました。");
+            }
+            const eventsData: FacilityWithEvents[] = await eventRes.json();
+            setEventData(eventsData);
+        } else {
+            setEventData([]);
+        }
+        
         setProgress(100);
         setProgressMessage("完了！");
+
       } catch (e: any) {
-        setError(e.message || "イベント情報の取得に失敗しました。");
+        setError(e.message || "データの取得中に不明なエラーが発生しました。");
         setProgress(100);
         setProgressMessage("エラーが発生しました");
       } finally {
-        setIsEventLoading(false);
+        setTimeout(() => {
+          setIsLoading(false);
+        }, 500);
       }
     };
 
-    fetchEventData();
-  }, [date, stationName, venueData]);
+    fetchAllData();
+  }, [stationName, date, stationId]); // Depend on stationName, date, and stationId
 
-  // 3. データ加工 (グルーピング)
+  // Data processing effect for grouping events
   useEffect(() => {
-    if (!eventData) return;
+    if (!eventData) {
+      setGroupedEvents([]);
+      return;
+    };
+
     const flatEvents = eventData.flatMap((facility) =>
       facility.events.flatMap((event) =>
         event.congestion_predictions.map((prediction) => ({
@@ -300,9 +261,8 @@ export default function VenuesPage() {
       const lastGroup = acc[acc.length - 1];
       if (lastGroup && lastGroup.start_hour === event.start_hour && lastGroup.end_hour === event.end_hour && lastGroup.label === event.label) {
         lastGroup.events.push({ venue_name: event.venue_name, event_name: event.event_name, scale: event.scale });
-        // 二乗和の平方根でスケールを合成する
         const newTotalScale = Math.sqrt(Math.pow(lastGroup.totalScale, 2) + Math.pow(event.scale, 2));
-        lastGroup.totalScale = Math.min(10, Math.round(newTotalScale * 10) / 10); // 小数点第一位までに丸めて、最大10
+        lastGroup.totalScale = Math.min(10, Math.round(newTotalScale * 10) / 10);
         lastGroup.eventCount += 1;
       } else {
         acc.push({
@@ -317,17 +277,14 @@ export default function VenuesPage() {
   }, [eventData]);
 
   const renderContent = () => {
-    if (isStationLoading || isEventLoading) {
+    if (isLoading) {
       return (
         <div className="py-10">
-          <div className="mb-4">
-            <Truck compact />
-          </div>
+          <div className="mb-4"><Truck compact /></div>
           <ProgressBar progress={progress} message={progressMessage} />
         </div>
       );
     }
-
     if (error) {
       return (
         <div className="max-w-md mx-auto">
@@ -338,7 +295,6 @@ export default function VenuesPage() {
         </div>
       );
     }
-
     if (groupedEvents.length === 0) {
       return (
         <div className="max-w-md mx-auto">
@@ -349,11 +305,9 @@ export default function VenuesPage() {
         </div>
       );
     }
-
     const HOUR_HEIGHT = 50;
     const START_HOUR = 5;
     const END_HOUR = 24;
-
     return (
       <div className="max-w-md mx-auto">
         <div className="max-h-[600px] overflow-y-auto border border-pink-200 rounded-lg bg-white shadow-sm">
@@ -409,7 +363,7 @@ export default function VenuesPage() {
                 </div>
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-sm">
-                  {isStationLoading ? '画像検索中...' : '画像なし'}
+                  {isLoading ? '画像検索中...' : '画像なし'}
                 </div>
               )}
             </div>
@@ -462,7 +416,7 @@ export default function VenuesPage() {
         <div className="fixed inset-0 bg-black/30 flex justify-center items-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full border border-pink-200">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-black">
+              <h2 className="xl font-bold text-black">
                 {String(selectedGroup.start_hour).padStart(2, "0")}:00 -{" "}
                 {String(selectedGroup.end_hour).padStart(2, "0")}:00 のイベント
               </h2>
