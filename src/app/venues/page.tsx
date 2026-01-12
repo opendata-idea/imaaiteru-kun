@@ -372,14 +372,10 @@ export default function VenuesPage() {
             </div>
           </div>
         </div>
-        <main className="flex-1 px-6 py-2 space-y-2">
-          <div className="flex border-b">
-            <div className="text-black text-sm flex-1 py-3 text-start font-medium">イベント情報</div>
-            <div className="text-black text-sm flex-1 py-3 text-start font-medium">運行情報</div>
-          </div>
-          <div className="flex items-center justify-start gap-3 pt-3">
-            <h1 className="text-black text-xl font-bold">イベント情報</h1>
-          </div>
+                <main className="flex-1 px-6 py-2 space-y-2">
+                  <div className="flex items-center justify-start gap-3 pt-3">
+                    <h1 className="text-black text-xl font-bold">イベント情報</h1>
+                  </div>
           <div className="text-start text-sm text-gray-600 mb-4">
             <input
               type="date"
