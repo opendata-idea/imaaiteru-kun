@@ -4,30 +4,65 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { RailwayOption, StationOption } from "@/lib/odpt";
 import RailwaySelect from "./RailwaySelect";
-
 type RailwayAndStationSelectorProps = {
   railwayOptions: RailwayOption[];
+};
+
+type FavoriteItem = {
+  railwayId: string;
+  stationId: string;
+  railwayLabel: string;
+  stationLabel: string;
+  count: number;
 };
 
 export default function RailwayAndStationSelector({
   railwayOptions,
 }: RailwayAndStationSelectorProps) {
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [selectedRailway, setSelectedRailway] = useState("");
   const [stations, setStations] = useState<StationOption[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedStation, setSelectedStation] = useState("");
-  const [selectedDate, setSelectedDate] = useState(() => {
+  const getTodayDateString = () => {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Set to midnight
-    return today.toISOString().split("T")[0]; // Format as YYYY-MM-DD
-  });
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0'); // 月は0から始まるため+1
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getTodayDateString);
+  const minDate = getTodayDateString();
   const router = useRouter();
+
+  const loadFavorites = () => {
+    try {
+      const savedFavorites = localStorage.getItem("imaaiteru-kun-favorites");
+      if (savedFavorites) {
+        const parsedFavorites: FavoriteItem[] = JSON.parse(savedFavorites);
+        parsedFavorites.sort((a, b) => b.count - a.count);
+        setFavorites(parsedFavorites.slice(0, 5));
+      }
+    } catch (error) {
+      console.error("Failed to load favorites from localStorage", error);
+    }
+  };
+
+  useEffect(() => {
+    loadFavorites();
+  }, []);
+
+  const handleFavoriteClick = (favorite: FavoriteItem) => {
+    setSelectedRailway(favorite.railwayId);
+    setSelectedStation(favorite.stationId);
+  };
 
   useEffect(() => {
     if (!selectedRailway) {
       setStations([]);
-      setSelectedStation(""); // 路線がクリアされたら駅もクリア
+      setSelectedStation("");
       return;
     }
 
@@ -41,7 +76,13 @@ export default function RailwayAndStationSelector({
         }
         const data: StationOption[] = await res.json();
         setStations(data);
-        setSelectedStation(""); // 新しい駅リストが来たら選択をリセット
+        // Reset station only if the new list doesn't contain the current selection
+        setSelectedStation(currentStation => {
+            if (data.some(station => station.value === currentStation)) {
+                return currentStation;
+            }
+            return "";
+        });
       } catch (e) {
         setError("駅情報の取得に失敗しました");
         console.error(e);
@@ -53,28 +94,78 @@ export default function RailwayAndStationSelector({
     fetchStations();
   }, [selectedRailway]);
 
-  const handleSearch = () => {
+  const handleSearch = async () => {
     if (!selectedStation) return;
+
+    try {
+      const savedFavorites = localStorage.getItem("imaaiteru-kun-favorites");
+      const favorites: FavoriteItem[] = savedFavorites ? JSON.parse(savedFavorites) : [];
+      
+      const existingFavIndex = favorites.findIndex(
+        (fav) => fav.railwayId === selectedRailway && fav.stationId === selectedStation
+      );
+
+      if (existingFavIndex > -1) {
+        favorites[existingFavIndex].count += 1;
+      } else {
+        const railwayLabel = railwayOptions.find(opt => opt.value === selectedRailway)?.label || "";
+        const stationLabel = stations.find(opt => opt.value === selectedStation)?.label || "";
+        if (railwayLabel && stationLabel) {
+          favorites.push({
+            railwayId: selectedRailway,
+            stationId: selectedStation,
+            railwayLabel,
+            stationLabel,
+            count: 1,
+          });
+        }
+      }
+      
+      localStorage.setItem("imaaiteru-kun-favorites", JSON.stringify(favorites));
+      loadFavorites(); // Reload and sort favorites for UI update
+    } catch (error) {
+      console.error("Failed to update favorites in localStorage", error);
+    }
+    
     const stationName = stations.find(
       (s) => s.value === selectedStation
     )?.label;
+    
     if (stationName) {
       router.push(
         `/venues?stationName=${encodeURIComponent(
           stationName
-        )}&date=${selectedDate}`
+        )}&date=${selectedDate}&stationId=${encodeURIComponent(selectedStation)}`
       );
     }
   };
 
   return (
     <div className="w-full max-w-md mx-auto space-y-6">
+      {favorites.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="block text-sm font-medium text-gray-800">よく使う組み合わせ</h2>
+          <div className="flex flex-wrap gap-2">
+            {favorites.map((fav) => (
+              <button
+                key={`${fav.railwayId}-${fav.stationId}`}
+                type="button"
+                onClick={() => handleFavoriteClick(fav)}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-800 text-sm px-3 py-1 rounded-full transition-colors"
+              >
+                {fav.railwayLabel}・{fav.stationLabel}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="space-y-3">
         <h2 className="block text-sm font-medium text-gray-800">日付選択</h2>
         <input
           type="date"
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
+          min={minDate}
           className="w-full bg-pink-100 text-gray-900 rounded-lg px-4 py-3 outline-none border border-transparent focus:ring-2 focus:ring-pink-300"
         />
       </div>
@@ -119,7 +210,7 @@ export default function RailwayAndStationSelector({
               <button
                 type="button"
                 onClick={handleSearch}
-                disabled={!selectedStation}
+                disabled={!selectedDate || !selectedRailway || !selectedStation}
                 className="w-full bg-pink-200 hover:bg-pink-300 text-gray-800 font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
               >
                 検索
@@ -136,3 +227,4 @@ export default function RailwayAndStationSelector({
     </div>
   );
 }
+
