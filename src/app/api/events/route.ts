@@ -130,11 +130,11 @@ export async function POST(request: NextRequest) {
             // 時間帯を考慮した駅利用者数を計算
             let weightedPassengers = 0;
             const timeZones = [
-              { start: 7, end: 10, ratio: 0.25 },  // 朝ラッシュ
-              { start: 10, end: 17, ratio: 0.35 }, // 昼間
-              { start: 17, end: 20, ratio: 0.25 }, // 夕ラッシュ
-              { start: 20, end: 24, ratio: 0.10 }, // 夜
-              { start: 0, end: 7, ratio: 0.05 },   // 早朝・深夜
+              { start: 7, end: 10, ratio: 0.12 },  // 朝ラッシュ
+              { start: 10, end: 17, ratio: 0.05 }, // 昼間
+              { start: 17, end: 20, ratio: 0.12 }, // 夕ラッシュ
+              { start: 20, end: 24, ratio: 0.05 }, // 夜
+              { start: 0, end: 7, ratio: 0.01 },   // 早朝・深夜
             ];
 
             // イベントの各ピーク時間帯について計算
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
                 for (const zone of timeZones) {
                     const overlapStart = Math.max(eventStart, zone.start);
                     const overlapEnd = Math.min(eventEnd, zone.end);
-                    const overlapDuration = Math.max(0, overlapDuration); // 0未満にならないように修正
+                    const overlapDuration = Math.max(0, overlapEnd - overlapStart);
 
                     if (overlapDuration > 0) {
                         const zoneDuration = zone.end - zone.start;
