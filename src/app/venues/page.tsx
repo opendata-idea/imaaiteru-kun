@@ -255,9 +255,11 @@ export default function VenuesPage() {
         }))
       )
     );
-    const filteredEvents = flatEvents.filter((event) => event.scale >= 5);
-    filteredEvents.sort((a, b) => a.start_hour - b.start_hour);
-    const grouped = filteredEvents.reduce<GroupedEvent[]>((acc, event) => {
+    // 時間順にソート
+    flatEvents.sort((a, b) => a.start_hour - b.start_hour);
+
+    // 時間帯でグルーピングし、混雑度を合算
+    const grouped = flatEvents.reduce<GroupedEvent[]>((acc, event) => {
       const lastGroup = acc[acc.length - 1];
       if (lastGroup && lastGroup.start_hour === event.start_hour && lastGroup.end_hour === event.end_hour && lastGroup.label === event.label) {
         lastGroup.events.push({ venue_name: event.venue_name, event_name: event.event_name, scale: event.scale });
