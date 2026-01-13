@@ -109,8 +109,8 @@ export async function POST(request: NextRequest) {
 `;
     const result = await model.generateContent(prompt);
     const responseText = result.response.text();
+    console.log("Gemini API Raw Response:", responseText);
 
-    // Step 3: レスポンスをパースし、サーバーサイドでscaleを計算
     const jsonMatch = responseText.match(/```json\n([\s\S]*?)\n```/);
     const cleanedText = jsonMatch ? jsonMatch[1] : responseText;
     if (!cleanedText.trim()) {
