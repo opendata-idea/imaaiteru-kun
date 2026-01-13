@@ -210,7 +210,7 @@ export default function RailwayAndStationSelector({
               <button
                 type="button"
                 onClick={handleSearch}
-                disabled={!selectedStation}
+                disabled={!selectedDate || !selectedRailway || !selectedStation}
                 className="w-full bg-pink-200 hover:bg-pink-300 text-gray-800 font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
               >
                 検索
