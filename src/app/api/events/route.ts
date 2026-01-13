@@ -11,7 +11,7 @@ const API_KEY = process.env.GEMINI_API_KEY;
 const genAI = API_KEY ? new GoogleGenerativeAI(API_KEY) : null;
 
 const SYSTEM_PROMPT = `
-あなたは駅周辺のイベント混雑予測AIです。Google検索を使用し、入力情報に基づき以下のJSON形式のみを出力してください。Markdownは不要です。
+あなたは施設のイベント来場者予測AIです。Google検索を使用し、入力情報に基づき以下のJSON形式のみを出力してください。Markdownは不要です。
 
 ### ルール
 1. **検索の最適化**: 複数の施設を調査する場合、個別に検索するのではなく、できるだけ1回のGoogle検索で済むようにクエリを工夫してください。例えば、「(施設名1 OR 施設名2) YYYY年MM月DD日 イベント」のように、OR演算子を使って検索をまとめてください。
@@ -93,10 +93,12 @@ export async function POST(request: NextRequest) {
     const stationPassengerMap = await fetchStationPassengerData();
     
     // station_id を使って乗降者数を直接取得
-    const stationPassengers = stationPassengerMap.get(station_id) || 50000;
-    if (stationPassengers === 50000) {
-        console.warn(`Passenger data not found for station ID: ${station_id}. Using default of 50000.`);
+    const dailyBoardingPassengers = stationPassengerMap.get(station_id) || 25000; // デフォルト値も半分に
+    if (dailyBoardingPassengers === 25000) {
+        console.warn(`Passenger data not found for station ID: ${station_id}. Using default of 25000.`);
     }
+    // 乗車人員と降車人員を考慮し、総乗降客数を2倍として概算する
+    const stationPassengers = dailyBoardingPassengers * 2;
 
     // Step 2: Gemini APIでイベント情報と推定来場者数を取得
     const prompt = `
@@ -124,8 +126,43 @@ export async function POST(request: NextRequest) {
         const newEvents = facility.events.map(event => {
             const attendees = event.estimated_attendees || 0;
             let scale = 1;
-            const ratio = stationPassengers > 0 ? attendees / stationPassengers : 0;
+            
+            // 時間帯を考慮した駅利用者数を計算
+            let weightedPassengers = 0;
+            const timeZones = [
+              { start: 7, end: 10, ratio: 0.25 },  // 朝ラッシュ
+              { start: 10, end: 17, ratio: 0.35 }, // 昼間
+              { start: 17, end: 20, ratio: 0.25 }, // 夕ラッシュ
+              { start: 20, end: 24, ratio: 0.10 }, // 夜
+              { start: 0, end: 7, ratio: 0.05 },   // 早朝・深夜
+            ];
 
+            // イベントの各ピーク時間帯について計算
+            for (const prediction of event.congestion_predictions) {
+                const eventStart = prediction.start_hour;
+                const eventEnd = prediction.end_hour;
+                let peakWeightedPassengers = 0;
+
+                for (const zone of timeZones) {
+                    const overlapStart = Math.max(eventStart, zone.start);
+                    const overlapEnd = Math.min(eventEnd, zone.end);
+                    const overlapDuration = Math.max(0, overlapDuration); // 0未満にならないように修正
+
+                    if (overlapDuration > 0) {
+                        const zoneDuration = zone.end - zone.start;
+                        if (zoneDuration > 0) {
+                            const passengersPerHourInZone = (stationPassengers * zone.ratio) / zoneDuration;
+                            peakWeightedPassengers += passengersPerHourInZone * overlapDuration;
+                        }
+                    }
+                }
+                // 複数のピーク時間帯がある場合、最大のものを採用
+                weightedPassengers = Math.max(weightedPassengers, peakWeightedPassengers);
+            }
+
+            const ratio = weightedPassengers > 0 ? attendees / weightedPassengers : 0;
+
+            // 判定ロジックは維持
             if (ratio > 0.5 || attendees > 50000) {
                 scale = 10;
             } else if (ratio > 0.2 || attendees > 10000) {
@@ -139,7 +176,7 @@ export async function POST(request: NextRequest) {
             return {
                 ...event,
                 scale: scale,
-                reason: `来場者予測:${attendees}人 / 駅利用者:${stationPassengers}人`,
+                reason: `来場者予測:${attendees}人 / 駅利用者(時間帯考慮):${Math.round(weightedPassengers)}人`,
             };
         });
         return { ...facility, events: newEvents };
