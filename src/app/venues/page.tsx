@@ -384,7 +384,7 @@ export default function VenuesPage() {
               value={date || ""}
               onChange={(e) => setDate(e.target.value)}
               min={getTodayDateString()}
-              className="bg-gray-100 border border-gray-300 rounded-md px-3 py-1 text-sm"
+              className="w-full bg-gray-100 border border-gray-300 rounded-md px-3 py-1 text-sm"
             />
           </div>
           <div className="max-w-md mx-auto rounded-lg pt-3">
